@@ -2,20 +2,21 @@ import assert from 'node:assert/strict';
 import {DatabaseSync} from 'node:sqlite';
 import {readFileSync} from 'node:fs';
 import ts from 'typescript';
-const sqlite=new DatabaseSync(':memory:');sqlite.exec(readFileSync('drizzle/0002_accounts.sql','utf8'));
+const sqlite=new DatabaseSync(':memory:');sqlite.exec(readFileSync('drizzle/0002_accounts.sql','utf8'));sqlite.exec(readFileSync('drizzle/0003_client_password.sql','utf8'));
 const db={prepare(sql){let args=[];const q={bind(...a){args=a;return q},async first(){return sqlite.prepare(sql).get(...args)||null},async run(){return sqlite.prepare(sql).run(...args)}};return q}};
 globalThis.__authEnv={DB:db};
 const source=readFileSync('server/auth.ts','utf8').replace("import {env} from 'cloudflare:workers';","const env=globalThis.__authEnv;");
 const js=ts.transpileModule(source,{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.ES2022}}).outputText;
 const api=await import('data:text/javascript;base64,'+Buffer.from(js).toString('base64'));
+const proofJs=ts.transpileModule(readFileSync('lib/password-proof.ts','utf8'),{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.ES2022}}).outputText;const {passwordProof}=await import('data:text/javascript;base64,'+Buffer.from(proofJs).toString('base64'));
 const base='https://hotai.test';const password='test-password-at-least-12';
-async function call(action,body={},headers={}){return api.auth(new Request(base+'/api/auth/'+action,{method:'POST',headers:{Origin:base,'Content-Type':'application/json','cf-connecting-ip':'192.0.2.1',...headers},body:JSON.stringify(body)}))}
+async function call(action,body={},headers={}){if(body.password?.length>=12){const clientSalt=action==='register'?crypto.randomUUID().replaceAll('-','').repeat(2):(sqlite.prepare('SELECT client_salt FROM accounts WHERE username=?').get(body.username.toLowerCase())?.client_salt||'0'.repeat(64));body={...body,passwordProof:await passwordProof(body.password,clientSalt),clientSalt,scheme:'client600k-server100k'};delete body.password;}return api.auth(new Request(base+'/api/auth/'+action,{method:'POST',headers:{Origin:base,'Content-Type':'application/json','cf-connecting-ip':'192.0.2.1',...headers},body:JSON.stringify(body)}))}
 assert.equal((await call('register',{username:'alice',password},{Origin:'https://evil.test'})).status,403);
 assert.equal((await call('register',{username:'alice',password:'short'})).status,400);
 const reg=await call('register',{username:'Alice',password,role:'admin'});assert.equal(reg.status,200);
 const cookie=reg.headers.get('set-cookie');assert(cookie.includes('HttpOnly')&&cookie.includes('Secure')&&cookie.includes('SameSite=Lax'));
 const user=await api.currentUser(new Request(base,{headers:{cookie}}));assert.equal(user.username,'alice');assert.equal(user.role,'viewer','Client cannot request admin');
-const row=sqlite.prepare('SELECT * FROM accounts').get();assert(!row.password_hash.includes(password));assert(row.password_hash.startsWith('pbkdf2-sha256$600000$'));
+const row=sqlite.prepare('SELECT * FROM accounts').get();assert(!row.password_hash.includes(password));assert.equal(row.client_salt.length,64);assert(row.password_hash.startsWith('client600k-server100k$'));
 const stored=sqlite.prepare('SELECT * FROM sessions').get();assert(!cookie.includes(stored.token_hash),'Session token stored hashed');
 assert.equal(await api.currentUser(new Request(base,{headers:{'oai-authenticated-user-id':row.id,'oai-authenticated-user-email':'admin@example.com'}})),null,'Sites headers never authorize standalone users');
 assert.equal((await call('register',{username:'ALICE',password})).status,409);
@@ -23,8 +24,8 @@ assert.equal((await call('login',{username:'alice',password:'wrong-password-valu
 const login=await call('login',{username:'ALICE',password});assert.equal(login.status,200);const cookie2=login.headers.get('set-cookie');assert.notEqual(cookie2,cookie);
 await call('logout',{}, {cookie:cookie2});assert.equal(await api.currentUser(new Request(base,{headers:{cookie:cookie2}})),null);
 sqlite.prepare('UPDATE sessions SET expires_at=0').run();assert.equal(await api.currentUser(new Request(base,{headers:{cookie}})),null);
-const otherHash=await api.hashPassword(password);assert.notEqual(otherHash,row.password_hash,'Unique password salts');
-assert(await api.verifyPassword(password,otherHash));assert(!await api.verifyPassword('different-password',otherHash));
+const proof=await passwordProof(password,row.client_salt);assert(!row.password_hash.includes(proof));const otherHash=await api.hashPassword(proof);assert.notEqual(otherHash,row.password_hash,'Unique password salts');
+assert(await api.verifyPassword(proof,otherHash));assert(!await api.verifyPassword('different-password',otherHash));
 for(let i=0;i<11;i++)await call('login',{username:'missing_user',password},{'cf-connecting-ip':'192.0.2.2'});
 assert.equal((await call('login',{username:'missing_user',password},{'cf-connecting-ip':'192.0.2.2'})).status,429);
 console.log('PASS: username/password registration, password hashing and salts, signed-out/expired sessions, secure cookies, origin protection, role escalation denial, login throttling, no Sites identity dependency.');
