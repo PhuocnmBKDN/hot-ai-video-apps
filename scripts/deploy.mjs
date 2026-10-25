@@ -1,0 +1,12 @@
+import {readFileSync} from 'node:fs';
+import {spawnSync} from 'node:child_process';
+import {fileURLToPath} from 'node:url';
+const config=JSON.parse(readFileSync(new URL('../wrangler.jsonc',import.meta.url),'utf8'));
+if(!/^[a-f0-9]{32}$/.test(config.account_id||''))throw Error('Set the account_id returned by wrangler whoami before deployment.');
+if(!config.d1_databases?.[0]?.database_id||config.d1_databases[0].database_id==='00000000-0000-4000-8000-000000000000')throw Error('Create your own D1 database and configure its ID before deployment.');
+const vite=new URL('../node_modules/vite/bin/vite.js',import.meta.url);
+const build=spawnSync(process.execPath,[fileURLToPath(vite),'build'],{stdio:'inherit',env:process.env});
+if(build.status!==0)process.exit(build.status??1);
+const cli=new URL('../node_modules/wrangler/bin/wrangler.js',import.meta.url);
+const r=spawnSync(process.execPath,[fileURLToPath(cli),'deploy'],{stdio:'inherit',env:process.env});
+process.exit(r.status??1);
