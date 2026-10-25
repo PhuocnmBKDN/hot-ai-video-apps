@@ -11,12 +11,10 @@ export async function hashPassword(proof:string){const salt=random();return 'cli
 export async function verifyPassword(proof:string,encoded:string){const [scheme,salt,expected]=encoded.split('$');if(scheme!=='client600k-server100k'||!salt||!expected)return false;const actual=await derive(proof,salt);let diff=actual.length^expected.length;for(let i=0;i<actual.length;i++)diff|=actual.charCodeAt(i)^(expected.charCodeAt(i)||0);return diff===0}
 export async function currentUser(req:Request){const cookie=req.headers.get('cookie')||'';const token=cookie.split(';').map(v=>v.trim()).find(v=>v.startsWith(cookieName+'='))?.slice(cookieName.length+1);if(!token||!/^[a-f0-9]{64}$/.test(token))return null;return await E().DB.prepare('SELECT a.id AS userId,a.username AS email,a.username,a.role FROM sessions s JOIN accounts a ON a.id=s.user_id WHERE s.token_hash=? AND s.expires_at>?').bind(await digest(token),Date.now()).first()}
 function sessionCookie(token:string,age=2592000){return `${cookieName}=${token}; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=${age}`}
-async function limit(key:string,max:number){const db=E().DB,now=Date.now(),expires=now+900000;const row=await db.prepare('INSERT INTO auth_limits(key,count,expires_at) VALUES(?,1,?) ON CONFLICT(key) DO UPDATE SET count=CASE WHEN expires_at<=? THEN 1 ELSE count+1 END,expires_at=CASE WHEN expires_at<=? THEN excluded.expires_at ELSE expires_at END RETURNING count').bind(key,expires,now,now).first();return row.count<=max}
 export async function auth(req:Request){
  const url=new URL(req.url);
  if(url.pathname==='/api/auth/challenge'&&req.method==='GET'){
   const username=(url.searchParams.get('username')||'').trim().toLowerCase();if(!/^[a-z0-9_]{3,32}$/.test(username))return reject('Tên đăng nhập không hợp lệ');
-  if(!await limit('challenge:'+await digest(req.headers.get('cf-connecting-ip')||'local'),60))return reject('Thử quá nhiều lần. Vui lòng đợi 15 phút.',429);
   const row=await E().DB.prepare('SELECT client_salt FROM accounts WHERE username=?').bind(username).first();return Response.json({clientSalt:row?.client_salt||random(),scheme:'client600k-server100k'},{headers:{'Cache-Control':'no-store'}});
  }
  if(req.method!=='POST')return reject('Phương thức không được hỗ trợ',405);
@@ -28,7 +26,6 @@ export async function auth(req:Request){
  const body=await req.text();if(body.length>2048)return reject('Yêu cầu quá lớn',413);let b:any;try{b=JSON.parse(body)}catch{return reject('Dữ liệu không hợp lệ')}
  const username=typeof b.username==='string'?b.username.trim().toLowerCase():'',password=b.passwordProof,clientSalt=b.clientSalt;
  if(!/^[a-z0-9_]{3,32}$/.test(username)||typeof password!=='string'||!/^[a-f0-9]{64}$/.test(password)||typeof clientSalt!=='string'||!/^[a-f0-9]{64}$/.test(clientSalt)||b.scheme!=='client600k-server100k')return reject('Dữ liệu đăng nhập không hợp lệ. Hãy tải lại trang rồi thử lại.');
- const ip=await digest(req.headers.get('cf-connecting-ip')||'local');if(!await limit('ip:'+ip,action==='register'?5:30)||!await limit('user:'+await digest(username),10))return reject('Thử quá nhiều lần. Vui lòng đợi 15 phút.',429);
  let account=await db.prepare('SELECT * FROM accounts WHERE username=?').bind(username).first();
  if(action==='register'){
   if(account)return reject('Tên đăng nhập không khả dụng',409);
