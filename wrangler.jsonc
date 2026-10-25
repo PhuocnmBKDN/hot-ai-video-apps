@@ -34,5 +34,13 @@
       "binding": "BUCKET",
       "bucket_name": "hot-ai-drama-media"
     }
-  ]
+  ],
+  "routes": [
+    {
+      "pattern": "hotai.bro.io.vn",
+      "custom_domain": true,
+      "zone_id": "db6244b035d441c19b2f9bed1fe8a427"
+    }
+  ],
+  "preview_urls": false
 }
