@@ -12,8 +12,8 @@ const api=await import('data:text/javascript;base64,'+Buffer.from(js).toString('
 const origin='https://test.local';async function call(path,body,headers={}){const r=new Request(origin+'/api/'+path,{method:body?'POST':'GET',headers:{...(body?{'Content-Type':'application/json','Origin':origin}:{}),...headers},...(body?{body:JSON.stringify(body)}:{})});const res=await api.GET(r);return {status:res.status,body:res.headers.get('content-type')?.includes('json')?await res.json():await res.text()}}
 const owner={userId:'owner',email:'owner@test.local',role:'admin'};const alice={userId:'alice',email:'alice@test.local'};const bob={userId:'bob',email:'bob@test.local'};
 assert.equal((await call('admin')).status,403);
-globalThis.__testUser=owner;assert.equal((await call('admin/series',{title:'Test',genre:'Bí ẩn',description:'Test',total:5})).status,400);
-await call('admin/series',{title:'Test',genre:'Bí ẩn',description:'Test',total:12});const film=sqlite.prepare('SELECT * FROM series').get();assert(film);
+globalThis.__testUser=owner;assert.equal((await call('admin/series',{title:'Test',genre:'Bí ẩn',description:'Test',paidFrom:0})).status,400);
+await call('admin/series',{title:'Test',genre:'Bí ẩn',description:'Test',paidFrom:4});const film=sqlite.prepare('SELECT * FROM series').get();assert(film);
 assert.equal((await call('admin/publish',{id:film.id,publish:true})).status,400,'Film without episode 1 must not publish');
 sqlite.prepare('INSERT INTO episodes VALUES(?,?,?,?,?)').run('early',film.id,1,'First','early');
 assert.equal((await call('admin/publish',{id:film.id,publish:true})).status,200,'Film can publish while later episodes are still pending');
@@ -34,12 +34,12 @@ const catalog=(await call('catalog')).body;assert.equal(catalog.films[0].buyers,
 console.log('PASS: guest/paywall boundary, owner authorization, CSRF, serialized publishing, QR gate, pending order reuse, payment idempotency, cross-user isolation, duplicate bank reference, private object keys.');
 
 globalThis.__testUser=owner;
-assert.equal((await call('admin/series',{title:'One-episode preview',genre:'Bản thử',description:'Free preview',total:1})).status,200);
+assert.equal((await call('admin/series',{title:'One-episode preview',genre:'Bản thử',description:'Free preview',paidFrom:2})).status,200);
 const preview=sqlite.prepare("SELECT * FROM series WHERE title='One-episode preview'").get();sqlite.prepare('INSERT INTO episodes VALUES(?,?,?,?,?)').run('preview1',preview.id,1,'Preview','preview-video');objects.set('preview-video',Buffer.from('preview'));
 assert.equal((await call('admin/publish',{id:preview.id,publish:true})).status,200);
 globalThis.__testUser=null;assert.equal((await call('video/preview1')).status,200,'One-episode preview is free');
-globalThis.__testUser=alice;assert.equal((await call('orders',{seriesId:preview.id})).status,400,'Cannot charge for free preview');
-console.log('PASS: single-episode preview publishing, free playback and checkout rejection.');
+globalThis.__testUser=alice;assert.equal((await call('orders',{seriesId:preview.id})).status,200,'Whole-film purchase covers future locked episodes');
+console.log('PASS: single-episode preview publishing, free playback and future-episode purchase.');
 
 globalThis.__testUser=owner;
 const beforeAdminOrder=sqlite.prepare('SELECT count(*) AS n FROM orders').get().n;
@@ -71,9 +71,9 @@ assert.equal((await call('wallet/buy',{seriesId:film.id,amount:0})).status,409);
 assert.equal((await call('video/e12')).status,403);
 assert.equal((await call('wallet')).body.balance,0);
 globalThis.__testUser=owner;
-assert.equal((await call('admin/edit',{id:film.id,title:'Edited film',genre:'Test',description:'Edited',total:12,price:19000})).status,200);
-assert.equal((await call('admin/edit',{id:film.id,title:'Invalid',genre:'Test',description:'',total:4,price:19000})).status,400,'Cannot discard uploaded episodes');
-assert.equal((await call('admin/edit',{id:film.id,title:'Invalid',genre:'Test',description:'',total:12,price:-1})).status,400);
+assert.equal((await call('admin/edit',{id:film.id,title:'Edited film',genre:'Test',description:'Edited',paidFrom:4,price:19000})).status,200);
+assert.equal((await call('admin/edit',{id:film.id,title:'Invalid',genre:'Test',description:'',paidFrom:0,price:19000})).status,400,'Cannot configure invalid paywall');
+assert.equal((await call('admin/edit',{id:film.id,title:'Invalid',genre:'Test',description:'',paidFrom:4,price:-1})).status,400);
 sqlite.prepare("INSERT INTO wallet_ledger VALUES(?,?,?,?,?,?)").run('seed-bob','bob',30000,'deposit','seed',Date.now());
 globalThis.__testUser=bob;
 assert.equal((await call('wallet/buy',{seriesId:film.id,amount:1})).status,200);
@@ -131,3 +131,10 @@ globalThis.__testEnv.DB.batch=failingBatch;
 assert.equal((await call('wallet')).body.balance,50000,'Failed transaction rolls back wallet debit');
 assert.equal((await call('video/e12')).status,403,'Failed transaction never grants access');
 console.log('PASS: changed-price confirmation and rollback on database failure.');
+
+globalThis.__testUser=owner;
+assert.equal((await call('admin/edit',{id:film.id,title:'Edited film',genre:'Test',description:'Edited',paidFrom:2,price:19000})).status,200);
+globalThis.__testUser=null;assert.equal((await call('video/e1')).status,200);assert.equal((await call('video/e2')).status,401);
+globalThis.__testUser=bob;assert.equal((await call('video/e2')).status,200,'Existing buyer retains access after threshold change');
+assert.equal((await call('catalog')).body.films.find(f=>f.id===film.id).total,12,'Catalog reports uploaded count');
+console.log('PASS: configurable paywall boundary and retained purchase access.');
