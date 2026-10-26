@@ -147,3 +147,12 @@ assert.equal((await call('admin/delete-film',{id:film.id,confirmTitle:'Edited fi
 assert(!(await call('catalog')).body.films.some(f=>f.id===film.id));assert.equal((await call('video/e3')).status,404);assert.equal(sqlite.prepare('SELECT count(*) AS n FROM orders WHERE series_id=?').get(film.id).n,orderCount,'Payment history retained');
 globalThis.__testEnv.BUCKET.delete=originalDelete;await api.cleanupMedia();assert.equal(sqlite.prepare('SELECT count(*) AS n FROM media_cleanup').get().n,0);
 console.log('PASS: admin-only scoped episode deletion, title confirmation, hidden deleted films, preserved payment history, retryable media cleanup.');
+for(const u of [alice,bob])sqlite.prepare('INSERT OR IGNORE INTO accounts(id,username,password_hash,created_at) VALUES(?,?,?,?)').run(u.userId,u.userId,'test-only',0);
+sqlite.prepare('UPDATE series SET paid_from=1 WHERE id=?').run(preview.id);
+globalThis.__testUser=alice;assert.equal((await call('admin/free-access',{seriesId:preview.id,username:'alice'})).status,403);assert.equal((await call('video/preview1')).status,403);
+globalThis.__testUser=owner;assert.equal((await call('admin/free-access',{seriesId:preview.id,username:'missing'})).status,404);assert.equal((await call('admin/free-access',{seriesId:preview.id,username:'alice'})).status,200);
+globalThis.__testUser=alice;assert.equal((await call('video/preview1')).status,200);assert((await call('catalog')).body.films.find(f=>f.id===preview.id).unlocked);const beforeFreeBuy=(await call('wallet')).body.balance;assert((await call('wallet/buy',{seriesId:preview.id})).body.alreadyUnlocked);assert.equal((await call('wallet')).body.balance,beforeFreeBuy);
+globalThis.__testUser=owner;assert.equal((await call('admin/free-access',{seriesId:preview.id,previousUsername:'alice',username:'bob'})).status,200);
+globalThis.__testUser=alice;assert.equal((await call('video/preview1')).status,403);globalThis.__testUser=bob;assert.equal((await call('video/preview1')).status,200);
+sqlite.prepare('INSERT INTO grants VALUES(?,?,?,?)').run('paid-preview','bob',preview.id,'paid-test');globalThis.__testUser=owner;await call('admin/free-access',{seriesId:preview.id,username:'bob',remove:true});globalThis.__testUser=bob;assert.equal((await call('video/preview1')).status,200,'Removing gift access never removes purchased access');
+console.log('PASS: film-specific free access, username validation, admin-only add/edit/revoke, no wallet charge, purchased access preserved.');
