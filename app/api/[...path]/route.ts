@@ -28,7 +28,7 @@ async function route(req:Request){
  if(req.method!=='GET'&&req.headers.get('origin')!==new URL(req.url).origin) return json({error:'Yêu cầu khác nguồn bị từ chối'},403);
  if(p[0]==='me')return json({user:user?{email:user.email,role:user.role||'viewer'}:null,admin:admin(user)});
  if(p[0]==='catalog'){
-  const films=(await db.prepare('SELECT id,title,description,genre,paid_from,created_at,updated_at FROM series WHERE published=1 AND deleted_at IS NULL ORDER BY created_at DESC').all()).results;
+  const showDrafts=admin(user)&&new URL(req.url).searchParams.get('drafts')==='1';const films=(await db.prepare('SELECT id,title,description,genre,paid_from,created_at,updated_at,published FROM series WHERE deleted_at IS NULL AND (published=1 OR ?=1) ORDER BY created_at DESC').bind(showDrafts?1:0).all()).results;
   for(const f of films){f.price=await price(f.id);f.poster=!!await setting('poster:'+f.id);f.buyers=(await db.prepare("SELECT count(*) AS n FROM orders WHERE series_id=? AND status='paid'").bind(f.id).first()).n;f.episodes=(await db.prepare('SELECT id,number,title FROM episodes WHERE series_id=? ORDER BY number').bind(f.id).all()).results;f.hotScore=(await db.prepare("SELECT count(*) AS n FROM orders WHERE series_id=? AND status='paid' AND created_at>=?").bind(f.id,Date.now()-7*86400000).first()).n;f.total=f.episodes.length;f.freeAccess=user?!!await db.prepare('SELECT 1 FROM complimentary_access WHERE user_id=? AND series_id=?').bind(user.userId,f.id).first():false;f.adminAccess=admin(user);f.unlocked=fullAccess(user)|| (user?await hasAccess(user.userId,f.id):false)}
   const recipient=await paymentRecipient();return json({films,recipient,checkoutReady:!!recipient&&!!await setting('qr')});
  }

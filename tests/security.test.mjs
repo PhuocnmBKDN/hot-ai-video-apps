@@ -160,3 +160,7 @@ globalThis.__testUser=owner;assert.equal((await call('admin/user-role',{username
 globalThis.__testUser={...alice,role:'vip'};assert.equal((await call('video/preview1')).status,200);assert.equal((await call('admin')).status,403);assert.equal((await call('admin/user-role',{username:'bob',role:'admin'})).status,403);assert((await call('wallet/buy',{seriesId:preview.id})).body.alreadyUnlocked);
 globalThis.__testUser=owner;assert.equal((await call('admin/user-role',{username:'alice',role:'admin'})).status,200);assert.equal(sqlite.prepare('SELECT role FROM accounts WHERE id=?').get('alice').role,'admin');
 console.log('PASS: existing-user role changes, VIP playback/purchase bypass, VIP admin denial, missing username validation.');
+globalThis.__testUser=owner;await call('admin/series',{title:'Draft visibility fixture',genre:'Test',description:'Test',paidFrom:2});const draft=sqlite.prepare("SELECT id FROM series WHERE title='Draft visibility fixture'").get();
+assert(!(await call('catalog')).body.films.some(f=>f.id===draft.id));assert((await call('catalog?drafts=1')).body.films.some(f=>f.id===draft.id&&f.published===0));
+for(const u of [null,alice,{...bob,role:'vip'}]){globalThis.__testUser=u;assert(!(await call('catalog?drafts=1')).body.films.some(f=>f.id===draft.id),'Non-admin cannot request draft catalog')}
+console.log('PASS: drafts hidden by default and exposed only by explicit admin toggle, never to viewers or VIP.');
