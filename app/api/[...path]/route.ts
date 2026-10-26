@@ -20,18 +20,19 @@ async function creditDeposit(d:any,reference:string){
   db.prepare("INSERT OR IGNORE INTO wallet_ledger(id,user_id,amount,kind,source_id,created_at) SELECT ?,user_id,amount,'deposit',id,? FROM deposits WHERE id=? AND status='approved'").bind(id,Date.now(),d.id)
  ]);
 }
+export async function cleanupMedia(){const db=E().DB;const rows=(await db.prepare('SELECT object_key FROM media_cleanup LIMIT 100').all()).results;for(const row of rows){try{await media().delete(row.object_key);await db.prepare('DELETE FROM media_cleanup WHERE object_key=?').bind(row.object_key).run()}catch{}}}
 async function route(req:Request){
  const p=new URL(req.url).pathname.split('/').slice(2); const db=E().DB; const bucket=media(); const user=await currentUser(req);
  if(req.method!=='GET'&&req.headers.get('origin')!==new URL(req.url).origin) return json({error:'Yêu cầu khác nguồn bị từ chối'},403);
  if(p[0]==='me')return json({user:user?{email:user.email,role:admin(user)?'admin':'viewer'}:null,admin:admin(user)});
  if(p[0]==='catalog'){
-  const films=(await db.prepare('SELECT id,title,description,genre,paid_from FROM series WHERE published=1 ORDER BY created_at DESC').all()).results;
+  const films=(await db.prepare('SELECT id,title,description,genre,paid_from FROM series WHERE published=1 AND deleted_at IS NULL ORDER BY created_at DESC').all()).results;
   for(const f of films){f.price=await price(f.id);f.poster=!!await setting('poster:'+f.id);f.buyers=(await db.prepare("SELECT count(*) AS n FROM orders WHERE series_id=? AND status='paid'").bind(f.id).first()).n;f.episodes=(await db.prepare('SELECT id,number,title FROM episodes WHERE series_id=? ORDER BY number').bind(f.id).all()).results;f.total=f.episodes.length;f.adminAccess=admin(user);f.unlocked=admin(user)|| (user?!!await db.prepare('SELECT id FROM grants WHERE user_id=? AND series_id=?').bind(user.userId,f.id).first():false)}
   const recipient=await paymentRecipient();return json({films,recipient,checkoutReady:!!recipient&&!!await setting('qr')});
  }
  if(p[0]==='video'){
-  const ep=await db.prepare('SELECT e.*,s.paid_from,s.published FROM episodes e JOIN series s ON s.id=e.series_id WHERE e.id=?').bind(p[1]).first();
-  if(!ep||(!ep.published&&!admin(user)))return json({error:'Không tìm thấy tập phim'},404);
+  const ep=await db.prepare('SELECT e.*,s.paid_from,s.published,s.deleted_at FROM episodes e JOIN series s ON s.id=e.series_id WHERE e.id=?').bind(p[1]).first();
+  if(!ep||ep.deleted_at||(!ep.published&&!admin(user)))return json({error:'Không tìm thấy tập phim'},404);
   if(ep.number>=ep.paid_from&&!admin(user)){
    if(!user)return json({error:'Cần đăng nhập'},401);
    if(!await db.prepare('SELECT id FROM grants WHERE user_id=? AND series_id=?').bind(user.userId,ep.series_id).first())return json({error:'Tập này cần mở khóa'},403);
@@ -40,13 +41,13 @@ async function route(req:Request){
   const h=new Headers({'Content-Type':'video/mp4','Cache-Control':'private, no-store','Accept-Ranges':'bytes','X-Content-Type-Options':'nosniff'});
   let status=200;if(obj.range&&'offset' in obj.range){const start=obj.range.offset||0;const len=obj.range.length||obj.size;h.set('Content-Range',`bytes ${start}-${start+len-1}/${obj.size}`);h.set('Content-Length',String(len));status=206}else h.set('Content-Length',String(obj.size));return new Response(obj.body,{status,headers:h});
  }
- if(p[0]==='poster'){const f=await db.prepare('SELECT id,published FROM series WHERE id=?').bind(p[1]).first();if(!f||(!f.published&&!admin(user)))return json({error:'Không tìm thấy poster'},404);const obj=await bucket.get('posters/'+f.id);return obj?new Response(obj.body,{headers:{'Content-Type':obj.httpMetadata?.contentType||'image/png','Cache-Control':'no-store','X-Content-Type-Options':'nosniff'}}):json({error:'Không có poster'},404)}
+ if(p[0]==='poster'){const f=await db.prepare('SELECT id,published FROM series WHERE id=? AND deleted_at IS NULL').bind(p[1]).first();if(!f||(!f.published&&!admin(user)))return json({error:'Không tìm thấy poster'},404);const obj=await bucket.get('posters/'+f.id);return obj?new Response(obj.body,{headers:{'Content-Type':obj.httpMetadata?.contentType||'image/png','Cache-Control':'no-store','X-Content-Type-Options':'nosniff'}}):json({error:'Không có poster'},404)}
  if(p[0]==='qr'){const key=await setting('qr');if(!key)return json({error:'Chưa cấu hình thanh toán'},503);const obj=await bucket.get(key);return obj?new Response(obj.body,{headers:{'Content-Type':obj.httpMetadata?.contentType||'image/png','Cache-Control':'no-store'}}):json({error:'QR chưa có'},404)}
  if(p[0]==='wallet'){
   if(!user)return json({error:'Đăng nhập để sử dụng ví'},401);
   if(req.method==='GET')return json({balance:await balance(user.userId),ledger:(await db.prepare('SELECT id,amount,kind,source_id,created_at FROM wallet_ledger WHERE user_id=? ORDER BY created_at DESC LIMIT 100').bind(user.userId).all()).results,deposits:(await db.prepare('SELECT id,amount,status,created_at FROM deposits WHERE user_id=? ORDER BY created_at DESC LIMIT 30').bind(user.userId).all()).results});
   if(p[1]==='buy'){
-   const b=await req.json() as any;const f=await db.prepare('SELECT * FROM series WHERE id=? AND published=1').bind(text(b.seriesId,64)).first();if(!f)fail('Không tìm thấy phim');
+   const b=await req.json() as any;const f=await db.prepare('SELECT * FROM series WHERE id=? AND published=1 AND deleted_at IS NULL').bind(text(b.seriesId,64)).first();if(!f)fail('Không tìm thấy phim');
    if(admin(user))return json({alreadyUnlocked:true});
    if(await db.prepare('SELECT id FROM grants WHERE user_id=? AND series_id=?').bind(user.userId,f.id).first())return json({alreadyUnlocked:true,balance:await balance(user.userId)});
    const amount=await price(f.id);if(b.expectedPrice!==undefined&&b.expectedPrice!==amount)fail('Giá phim vừa thay đổi. Hãy tải lại và xác nhận giá mới.',409);const id=uid();const now=Date.now();
@@ -75,7 +76,7 @@ async function route(req:Request){
   if(!user)return json({error:'Đăng nhập để lưu quyền xem'},401);
   if(req.method==='GET')return json({orders:(await db.prepare('SELECT o.id,o.series_id,o.amount,o.status,o.created_at,s.title FROM orders o JOIN series s ON s.id=o.series_id WHERE o.user_id=? ORDER BY o.created_at DESC').bind(user.userId).all()).results});
   if(req.method==='POST'){
-   const b=await req.json() as any;const film=await db.prepare('SELECT id,paid_from FROM series WHERE id=? AND published=1').bind(text(b.seriesId,64)).first();if(!film)fail('Bộ phim chưa phát hành');if(admin(user))return json({alreadyUnlocked:true,adminAccess:true});
+   const b=await req.json() as any;const film=await db.prepare('SELECT id,paid_from FROM series WHERE id=? AND published=1 AND deleted_at IS NULL').bind(text(b.seriesId,64)).first();if(!film)fail('Bộ phim chưa phát hành');if(admin(user))return json({alreadyUnlocked:true,adminAccess:true});
    if(await db.prepare('SELECT id FROM grants WHERE user_id=? AND series_id=?').bind(user.userId,film.id).first())return json({alreadyUnlocked:true});
    if(!await setting('qr')||!await paymentRecipient())return json({error:'Thanh toán chưa mở. Vui lòng quay lại sau.'},503);
    const old=await db.prepare("SELECT id FROM orders WHERE user_id=? AND series_id=? AND status='pending'").bind(user.userId,film.id).first();if(old)return json({id:old.id});
@@ -86,22 +87,32 @@ async function route(req:Request){
  if(p[0]==='admin'){
   if(!admin(user))return json({error:'Chỉ chủ trang được quản trị'},403);
   if(p[1]==='receipt'&&req.method==='GET'){const d=await db.prepare('SELECT receipt_key FROM deposits WHERE id=?').bind(p[2]).first();if(!d?.receipt_key)fail('Không có biên lai',404);const obj=await bucket.get(d.receipt_key);return obj?new Response(obj.body,{headers:{'Content-Type':obj.httpMetadata?.contentType||'image/png','Cache-Control':'private, no-store','X-Content-Type-Options':'nosniff'}}):json({error:'Không có ảnh'},404)}
-  if(p[1]==='films'&&req.method==='GET'){const films=(await db.prepare('SELECT * FROM series ORDER BY created_at DESC').all()).results;for(const f of films){f.price=await price(f.id)}return json({films,deposits:(await db.prepare('SELECT id,email,amount,status,created_at FROM deposits ORDER BY created_at DESC LIMIT 100').all()).results,automaticReceiptCheck:false})}
-  if(req.method==='GET')return json({series:(await db.prepare('SELECT * FROM series ORDER BY created_at DESC').all()).results,episodes:(await db.prepare('SELECT id,series_id,number,title FROM episodes ORDER BY number').all()).results,orders:(await db.prepare('SELECT o.*,s.title FROM orders o JOIN series s ON s.id=o.series_id ORDER BY created_at DESC LIMIT 100').all()).results,qrReady:!!await setting('qr'),recipient:await paymentRecipient(),checkoutReady:!!await paymentRecipient()&&!!await setting('qr'),revenue:(await db.prepare("SELECT coalesce(sum(amount),0) AS value FROM orders WHERE status='paid'").first()).value});
+  if(p[1]==='films'&&req.method==='GET'){const films=(await db.prepare('SELECT * FROM series WHERE deleted_at IS NULL ORDER BY created_at DESC').all()).results;for(const f of films){f.price=await price(f.id)}return json({films,deposits:(await db.prepare('SELECT id,email,amount,status,created_at FROM deposits ORDER BY created_at DESC LIMIT 100').all()).results,automaticReceiptCheck:false})}
+  if(req.method==='GET')return json({series:(await db.prepare('SELECT * FROM series WHERE deleted_at IS NULL ORDER BY created_at DESC').all()).results,episodes:(await db.prepare('SELECT id,series_id,number,title FROM episodes ORDER BY number').all()).results,orders:(await db.prepare('SELECT o.*,s.title FROM orders o JOIN series s ON s.id=o.series_id ORDER BY created_at DESC LIMIT 100').all()).results,qrReady:!!await setting('qr'),recipient:await paymentRecipient(),checkoutReady:!!await paymentRecipient()&&!!await setting('qr'),revenue:(await db.prepare("SELECT coalesce(sum(amount),0) AS value FROM orders WHERE status='paid'").first()).value});
   if(p[1]==='upload'||p[1]==='qr'||p[1]==='poster'){
    const size=Number(req.headers.get('content-length'));const type=req.headers.get('content-type')||'';
-   if(p[1]==='poster'){const id=text(new URL(req.url).searchParams.get('seriesId'),64);if(!await db.prepare('SELECT id FROM series WHERE id=?').bind(id).first())fail('Không tìm thấy phim');if(!['image/png','image/jpeg','image/webp'].includes(type))fail('Poster cần PNG/JPEG/WebP');const bytes=await req.arrayBuffer();if(bytes.byteLength>5*1024*1024)fail('Poster tối đa 5 MB');await bucket.put('posters/'+id,bytes,{httpMetadata:{contentType:type}});await writeSetting('poster:'+id,'yes');return json({ok:true})}
+   if(p[1]==='poster'){const id=text(new URL(req.url).searchParams.get('seriesId'),64);if(!await db.prepare('SELECT id FROM series WHERE id=? AND deleted_at IS NULL').bind(id).first())fail('Không tìm thấy phim');if(!['image/png','image/jpeg','image/webp'].includes(type))fail('Poster cần PNG/JPEG/WebP');const bytes=await req.arrayBuffer();if(bytes.byteLength>5*1024*1024)fail('Poster tối đa 5 MB');await bucket.put('posters/'+id,bytes,{httpMetadata:{contentType:type}});await writeSetting('poster:'+id,'yes');return json({ok:true})}
    if(p[1]==='qr'){
     if(!['image/png','image/jpeg','image/webp'].includes(type))fail('QR cần là PNG, JPEG hoặc WebP');const data=await req.arrayBuffer();if(data.byteLength>2*1024*1024)fail('QR tối đa 2 MB');await bucket.put('payment/qr',data,{httpMetadata:{contentType:type}});await writeSetting('qr','payment/qr');return json({ok:true});
    }
    if(type!=='video/mp4'||!size||size>90*1024*1024)fail('Video MP4, tối đa 90 MB mỗi tập');
-   const u=new URL(req.url);const seriesId=text(u.searchParams.get('seriesId'),64);const n=Number(u.searchParams.get('number'));const f=await db.prepare('SELECT * FROM series WHERE id=?').bind(seriesId).first();if(!f||!Number.isInteger(n)||n<1||n>1000000)fail('Số tập phải là số nguyên từ 1 trở lên');
+   const u=new URL(req.url);const seriesId=text(u.searchParams.get('seriesId'),64);const n=Number(u.searchParams.get('number'));const f=await db.prepare('SELECT * FROM series WHERE id=? AND deleted_at IS NULL').bind(seriesId).first();if(!f||!Number.isInteger(n)||n<1||n>1000000)fail('Số tập phải là số nguyên từ 1 trở lên');
    if(await db.prepare('SELECT id FROM episodes WHERE series_id=? AND number=?').bind(seriesId,n).first())fail('Tập này đã được tải lên');
    const id=uid();const key='episodes/'+id+'.mp4';await bucket.put(key,req.body,{httpMetadata:{contentType:'video/mp4'},size});try{await db.prepare('INSERT INTO episodes(id,series_id,number,title,object_key) VALUES(?,?,?,?,?)').bind(id,seriesId,n,text(u.searchParams.get('title'),100)||'Tập '+n,key).run()}catch(err){await bucket.delete(key);throw err}return json({ok:true});
   }
   const b=await req.json() as any;
+  if(p[1]==='delete-episodes'){
+   const id=text(b.seriesId,64);if(!await db.prepare('SELECT id FROM series WHERE id=? AND deleted_at IS NULL').bind(id).first())fail('Không tìm thấy phim',404);
+   if(!Array.isArray(b.ids)||!b.ids.length||b.ids.length>1000||b.ids.some((x:any)=>typeof x!=='string'||x.length>64))fail('Danh sách tập không hợp lệ');const ids=[...new Set(b.ids)];const list=JSON.stringify(ids);
+   const found=(await db.prepare('SELECT id FROM episodes WHERE series_id=? AND id IN (SELECT value FROM json_each(?))').bind(id,list).all()).results;if(found.length!==ids.length)fail('Một số tập không thuộc phim này hoặc đã bị xóa',409);
+   await db.batch([db.prepare('INSERT OR IGNORE INTO media_cleanup(object_key) SELECT object_key FROM episodes WHERE series_id=? AND id IN (SELECT value FROM json_each(?))').bind(id,list),db.prepare('DELETE FROM episodes WHERE series_id=? AND id IN (SELECT value FROM json_each(?))').bind(id,list),db.prepare('UPDATE series SET updated_at=? WHERE id=?').bind(Date.now(),id)]);await cleanupMedia();return json({ok:true,deleted:ids.length});
+  }
+  if(p[1]==='delete-film'){
+   const id=text(b.id,64);const f=await db.prepare('SELECT * FROM series WHERE id=? AND deleted_at IS NULL').bind(id).first();if(!f)fail('Không tìm thấy phim',404);if(b.confirmTitle!==f.title)fail('Tên xác nhận chưa khớp');
+   await db.batch([db.prepare('INSERT OR IGNORE INTO media_cleanup(object_key) SELECT object_key FROM episodes WHERE series_id=?').bind(id),db.prepare('INSERT OR IGNORE INTO media_cleanup(object_key) VALUES(?)').bind('posters/'+id),db.prepare('DELETE FROM episodes WHERE series_id=?').bind(id),db.prepare('UPDATE series SET deleted_at=?,published=0,updated_at=? WHERE id=?').bind(Date.now(),Date.now(),id)]);await cleanupMedia();return json({ok:true});
+  }
   if(p[1]==='edit'){
-   const id=text(b.id,64);const f=await db.prepare('SELECT * FROM series WHERE id=?').bind(id).first();if(!f)fail('Không tìm thấy phim');const paidFrom=Number(b.paidFrom),amount=Number(b.price);const title=text(b.title,120);
+   const id=text(b.id,64);const f=await db.prepare('SELECT * FROM series WHERE id=? AND deleted_at IS NULL').bind(id).first();if(!f)fail('Không tìm thấy phim');const paidFrom=Number(b.paidFrom),amount=Number(b.price);const title=text(b.title,120);
    if(!title||!Number.isSafeInteger(paidFrom)||paidFrom<1||paidFrom>1000000||!Number.isSafeInteger(amount)||amount<1000||amount>1000000)fail('Tên phim bắt buộc; tập bắt đầu khóa từ 1; giá từ 1.000đ–1.000.000đ');
    await db.batch([db.prepare('UPDATE series SET title=?,description=?,genre=?,paid_from=? WHERE id=?').bind(title,text(b.description,1500),text(b.genre,500),paidFrom,id),db.prepare('INSERT INTO settings(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value').bind('price:'+id,String(amount))]);return json({ok:true});
   }
@@ -115,7 +126,7 @@ async function route(req:Request){
    const title=text(b.title,120);if(!title)fail('Thiếu tên phim');await db.prepare('INSERT INTO series(id,title,description,genre,total,paid_from,published,created_at) VALUES(?,?,?,?,0,?,0,?)').bind(uid(),title,text(b.description,1500),text(b.genre,500),paidFrom,Date.now()).run();return json({ok:true});
   }
   if(p[1]==='publish'){
-   const f=await db.prepare('SELECT * FROM series WHERE id=?').bind(text(b.id,64)).first();if(!f)fail('Không tìm thấy phim');const first=await db.prepare('SELECT id FROM episodes WHERE series_id=? AND number=1').bind(f.id).first();if(b.publish&&!first)fail('Cần tải tập 1 trước khi phát hành');await db.prepare('UPDATE series SET published=? WHERE id=?').bind(b.publish?1:0,f.id).run();return json({ok:true});
+   const f=await db.prepare('SELECT * FROM series WHERE id=? AND deleted_at IS NULL').bind(text(b.id,64)).first();if(!f)fail('Không tìm thấy phim');const first=await db.prepare('SELECT id FROM episodes WHERE series_id=? AND number=1').bind(f.id).first();if(b.publish&&!first)fail('Cần tải tập 1 trước khi phát hành');await db.prepare('UPDATE series SET published=? WHERE id=?').bind(b.publish?1:0,f.id).run();return json({ok:true});
   }
   if(p[1]==='confirm'){
    const o=await db.prepare('SELECT * FROM orders WHERE id=?').bind(text(b.id,64)).first();if(!o)fail('Không tìm thấy đơn');if(o.status==='paid')return json({ok:true});const ref=text(b.reference,150);if(!ref)fail('Cần mã giao dịch ngân hàng đã đối soát');if(await db.prepare('SELECT id FROM deposits WHERE reference=?').bind(ref.toUpperCase()).first())fail('Mã giao dịch này đã dùng nạp ví');if(await db.prepare("SELECT id FROM orders WHERE reference=? AND status='paid'").bind(ref).first())fail('Mã giao dịch này đã dùng');

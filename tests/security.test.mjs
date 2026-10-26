@@ -138,3 +138,12 @@ globalThis.__testUser=null;assert.equal((await call('video/e1')).status,200);ass
 globalThis.__testUser=bob;assert.equal((await call('video/e2')).status,200,'Existing buyer retains access after threshold change');
 assert.equal((await call('catalog')).body.films.find(f=>f.id===film.id).total,12,'Catalog reports uploaded count');
 console.log('PASS: configurable paywall boundary and retained purchase access.');
+globalThis.__testUser=alice;assert.equal((await call('admin/delete-episodes',{seriesId:film.id,ids:['e1']})).status,403);
+globalThis.__testUser=owner;assert.equal((await call('admin/delete-episodes',{seriesId:film.id,ids:['preview1']})).status,409,'Cannot delete another film episode');
+assert.equal((await call('admin/delete-episodes',{seriesId:film.id,ids:['e1','e2']})).status,200);assert(!objects.has('v1'));assert(!objects.has('v2'));assert.equal(sqlite.prepare('SELECT number FROM episodes WHERE id=?').get('e3').number,3,'Remaining episode numbers stay unchanged');
+assert.equal((await call('admin/delete-film',{id:film.id,confirmTitle:'wrong'})).status,400);
+const orderCount=sqlite.prepare('SELECT count(*) AS n FROM orders WHERE series_id=?').get(film.id).n;const originalDelete=globalThis.__testEnv.BUCKET.delete;globalThis.__testEnv.BUCKET.delete=async()=>{throw Error('Storage temporarily unavailable')};
+assert.equal((await call('admin/delete-film',{id:film.id,confirmTitle:'Edited film'})).status,200);assert(sqlite.prepare('SELECT count(*) AS n FROM media_cleanup').get().n>0,'Failed storage deletions queued for retry');
+assert(!(await call('catalog')).body.films.some(f=>f.id===film.id));assert.equal((await call('video/e3')).status,404);assert.equal(sqlite.prepare('SELECT count(*) AS n FROM orders WHERE series_id=?').get(film.id).n,orderCount,'Payment history retained');
+globalThis.__testEnv.BUCKET.delete=originalDelete;await api.cleanupMedia();assert.equal(sqlite.prepare('SELECT count(*) AS n FROM media_cleanup').get().n,0);
+console.log('PASS: admin-only scoped episode deletion, title confirmation, hidden deleted films, preserved payment history, retryable media cleanup.');
