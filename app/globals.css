@@ -20,3 +20,5 @@
 .support-zalo{color:#69b4ff;text-decoration:underline}.wallet-panel .notice{overflow-wrap:anywhere}
 
 .wallet-payment-target{scroll-margin-top:24px}.wallet-payment-target .bank-qr{aspect-ratio:1;object-fit:contain}
+
+.upload-plan{list-style:none;padding:0;max-height:260px;overflow:auto}.upload-plan li{display:flex;justify-content:space-between;gap:12px;padding:9px 0;border-bottom:1px solid var(--line);font-size:12px}.upload-plan span{overflow-wrap:anywhere;min-width:0}.upload-plan small{white-space:nowrap;color:var(--muted)}
