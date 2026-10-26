@@ -1,6 +1,6 @@
 # Hot AI Drama — independent Cloudflare deployment
 
-React + Vite frontend, Cloudflare Worker API, D1 database, private R2 media. This directory has no dependency on Sites or ChatGPT sign-in. The original `../web` deployment remains the rollback until cutover completes.
+React + Vite frontend, Cloudflare Worker API, D1 database, private R2 media. This directory has no dependency on Sites or ChatGPT sign-in. Production runs at https://hotai.bro.io.vn on the owner's Cloudflare account. The original `../web` source is outside this repository.
 
 ## Prerequisites
 
@@ -39,3 +39,11 @@ Changing the hostname requires users to sign in again and reinstall the PWA if n
 ## Schema maintenance
 
 Use append-only SQL migrations in `drizzle/` with `wrangler d1 migrations create DB <name>`. Do not regenerate or modify the imported historical migrations. The directory name is retained for continuity; the standalone app uses direct prepared D1 SQL, not a Sites schema service.
+
+## Source control
+
+Canonical private repository: https://github.com/PhuocnmBKDN/hot-ai-video-apps
+
+Use `main` for the current production source. Commit and push changes after verification so the deployed code has a recoverable source revision. Deployment currently uses `npm run deploy` from an authenticated local checkout; pushing to GitHub alone does not deploy the app.
+
+For a fresh checkout: `npm ci`, `npm run typecheck`, `npm test`, then authenticate Wrangler before deployment. The configured Cloudflare resources already exist; do not recreate or re-import them during routine deployment. See [SePay setup](SEPAY-SETUP.md) for wallet webhook configuration. Secrets stay in Cloudflare, media in R2, and live data in D1; Git backs up source only.

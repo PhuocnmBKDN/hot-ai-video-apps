@@ -14,7 +14,11 @@ const owner={userId:'owner',email:'owner@test.local',role:'admin'};const alice={
 assert.equal((await call('admin')).status,403);
 globalThis.__testUser=owner;assert.equal((await call('admin/series',{title:'Test',genre:'Bí ẩn',description:'Test',total:5})).status,400);
 await call('admin/series',{title:'Test',genre:'Bí ẩn',description:'Test',total:12});const film=sqlite.prepare('SELECT * FROM series').get();assert(film);
-assert.equal((await call('admin/publish',{id:film.id,publish:true})).status,400,'Incomplete film must not publish');
+assert.equal((await call('admin/publish',{id:film.id,publish:true})).status,400,'Film without episode 1 must not publish');
+sqlite.prepare('INSERT INTO episodes VALUES(?,?,?,?,?)').run('early',film.id,1,'First','early');
+assert.equal((await call('admin/publish',{id:film.id,publish:true})).status,200,'Film can publish while later episodes are still pending');
+assert.equal((await call('catalog')).body.films[0].episodes.length,1);
+sqlite.prepare('DELETE FROM episodes WHERE id=?').run('early');
 for(let n=1;n<=12;n++){sqlite.prepare('INSERT INTO episodes VALUES(?,?,?,?,?)').run('e'+n,film.id,n,'Ep '+n,'v'+n);objects.set('v'+n,Buffer.from('test-video'))}
 assert.equal((await call('admin/publish',{id:film.id,publish:true})).status,200);
 globalThis.__testUser=null;assert.equal((await call('video/e3')).status,200);assert.equal((await call('video/e4')).status,401);
@@ -27,7 +31,7 @@ globalThis.__testUser=alice;assert.equal((await call('video/e12')).status,200);
 globalThis.__testUser=bob;assert.equal((await call('video/e4')).status,403,'Grant belongs only to purchaser');const order2=await call('orders',{seriesId:film.id});globalThis.__testUser=owner;assert.equal((await call('admin/confirm',{id:order2.body.id,reference:'bank1'})).status,400,'Bank reference cannot be reused');
 globalThis.__testUser=bob;assert.equal((await call('video/e4')).status,403);assert.equal((await call('orders')).body.orders.length,1,'Users see only own orders');
 const catalog=(await call('catalog')).body;assert.equal(catalog.films[0].buyers,1);assert.equal(catalog.films[0].unlocked,false);assert(!JSON.stringify(catalog).includes('object_key'));
-console.log('PASS: guest/paywall boundary, owner authorization, CSRF, publish completeness, QR gate, pending order reuse, payment idempotency, cross-user isolation, duplicate bank reference, private object keys.');
+console.log('PASS: guest/paywall boundary, owner authorization, CSRF, serialized publishing, QR gate, pending order reuse, payment idempotency, cross-user isolation, duplicate bank reference, private object keys.');
 
 globalThis.__testUser=owner;
 assert.equal((await call('admin/series',{title:'One-episode preview',genre:'Bản thử',description:'Free preview',total:1})).status,200);
