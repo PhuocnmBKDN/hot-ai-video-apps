@@ -47,3 +47,5 @@ Canonical private repository: https://github.com/PhuocnmBKDN/hot-ai-video-apps
 Use `main` for the current production source. Commit and push changes after verification so the deployed code has a recoverable source revision. Deployment currently uses `npm run deploy` from an authenticated local checkout; pushing to GitHub alone does not deploy the app.
 
 For a fresh checkout: `npm ci`, `npm run typecheck`, `npm test`, then authenticate Wrangler before deployment. The configured Cloudflare resources already exist; do not recreate or re-import them during routine deployment. See [SePay setup](SEPAY-SETUP.md) for wallet webhook configuration. Secrets stay in Cloudflare, media in R2, and live data in D1; Git backs up source only.
+
+Customer records and transactions belong only in the live D1 database. Receipt images and media belong in private R2. Never commit production data exports, customer records, session data or credentials. SQL files in `drizzle/` define schema migrations only, not a copy of customer data. Test fixtures are synthetic.

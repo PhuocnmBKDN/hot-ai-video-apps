@@ -43,3 +43,22 @@ yarn-error.log*
 
 # OS metadata
 .DS_Store
+
+# Runtime media, customer data, and database backups must never enter source control
+*.mp4
+*.mov
+*.mkv
+*.webm
+*.avi
+*.m4v
+*.db
+*.sqlite
+*.sqlite3
+*.sql.gz
+*.dump
+/backups/
+/receipts/
+/uploads/
+/customer-data/
+*backup*.sql
+*export*.sql
