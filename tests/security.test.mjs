@@ -164,3 +164,14 @@ globalThis.__testUser=owner;await call('admin/series',{title:'Draft visibility f
 assert(!(await call('catalog')).body.films.some(f=>f.id===draft.id));assert((await call('catalog?drafts=1')).body.films.some(f=>f.id===draft.id&&f.published===0));
 for(const u of [null,alice,{...bob,role:'vip'}]){globalThis.__testUser=u;assert(!(await call('catalog?drafts=1')).body.films.some(f=>f.id===draft.id),'Non-admin cannot request draft catalog')}
 console.log('PASS: drafts hidden by default and exposed only by explicit admin toggle, never to viewers or VIP.');
+
+for(const u of [null,bob,{...bob,role:'vip'}]){globalThis.__testUser=u;assert.equal((await call('admin/user-activity?username=alice')).status,403)}
+globalThis.__testUser=owner;
+assert.equal((await call('admin/user-activity?username=missing')).status,404);
+for(const section of ['ledger','purchased','watched']){const result=await call('admin/user-activity?username=alice&section='+section+'&size=1');assert.equal(result.status,200);assert(result.body.rows.length<=1);assert(!JSON.stringify(result.body).includes('password_hash'))}
+const depositsOnly=(await call('admin/user-activity?username=alice&kind=deposit')).body;assert(depositsOnly.rows.every(r=>r.amount>0));
+const spendsOnly=(await call('admin/user-activity?username=alice&kind=purchase')).body;assert(spendsOnly.rows.every(r=>r.amount<0));
+globalThis.__testUser=bob;assert.equal((await call('watch-history',{episodeId:'preview1',position:12,completed:false})).status,200);
+globalThis.__testUser=owner;const watched=(await call('admin/user-activity?username=bob&section=watched')).body;assert.equal(watched.total,1);assert.equal(watched.rows[0].position,12);
+globalThis.__testUser=null;assert.equal((await call('watch-history',{episodeId:'preview1',position:1})).status,401);
+console.log('PASS: private admin user activity, ledger filters, pagination, purchase lists and authenticated watch history.');

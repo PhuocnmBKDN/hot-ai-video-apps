@@ -27,6 +27,12 @@ async function route(req:Request){
  const p=new URL(req.url).pathname.split('/').slice(2); const db=E().DB; const bucket=media(); const user=await currentUser(req);
  if(req.method!=='GET'&&req.headers.get('origin')!==new URL(req.url).origin) return json({error:'Yêu cầu khác nguồn bị từ chối'},403);
  if(p[0]==='me')return json({user:user?{email:user.email,role:user.role||'viewer'}:null,admin:admin(user)});
+ if(p[0]==='watch-history'&&req.method==='POST'){
+  if(!user)fail('Cần đăng nhập',401);const b:any=await req.json();const e=await db.prepare('SELECT e.id,e.series_id,e.number,s.paid_from,s.published FROM episodes e JOIN series s ON s.id=e.series_id WHERE e.id=? AND s.deleted_at IS NULL').bind(text(b.episodeId,64)).first();
+  if(!e||(!e.published&&!admin(user)))fail('Không tìm thấy tập',404);if(e.number>=e.paid_from&&!fullAccess(user)&&!await hasAccess(user.userId,e.series_id))fail('Chưa mở khóa phim',403);
+  const position=Number(b.position);if(!Number.isFinite(position)||position<0||position>86400)fail('Vị trí không hợp lệ');
+  await db.prepare('INSERT INTO watch_history(user_id,series_id,episode_id,episode_number,position,completed,updated_at) VALUES(?,?,?,?,?,?,?) ON CONFLICT(user_id,series_id) DO UPDATE SET episode_id=excluded.episode_id,episode_number=excluded.episode_number,position=excluded.position,completed=excluded.completed,updated_at=excluded.updated_at').bind(user.userId,e.series_id,e.id,e.number,position,b.completed===true?1:0,Date.now()).run();return json({ok:true});
+ }
  if(p[0]==='catalog'){
   const showDrafts=admin(user)&&new URL(req.url).searchParams.get('drafts')==='1';const films=(await db.prepare('SELECT id,title,description,genre,paid_from,created_at,updated_at,published FROM series WHERE deleted_at IS NULL AND (published=1 OR ?=1) ORDER BY created_at DESC').bind(showDrafts?1:0).all()).results;
   for(const f of films){f.price=await price(f.id);f.poster=!!await setting('poster:'+f.id);f.buyers=(await db.prepare("SELECT count(*) AS n FROM orders WHERE series_id=? AND status='paid'").bind(f.id).first()).n;f.episodes=(await db.prepare('SELECT id,number,title FROM episodes WHERE series_id=? ORDER BY number').bind(f.id).all()).results;f.hotScore=(await db.prepare("SELECT count(*) AS n FROM orders WHERE series_id=? AND status='paid' AND created_at>=?").bind(f.id,Date.now()-7*86400000).first()).n;f.total=f.episodes.length;f.freeAccess=user?!!await db.prepare('SELECT 1 FROM complimentary_access WHERE user_id=? AND series_id=?').bind(user.userId,f.id).first():false;f.adminAccess=admin(user);f.unlocked=fullAccess(user)|| (user?await hasAccess(user.userId,f.id):false)}
@@ -88,6 +94,16 @@ async function route(req:Request){
  }
  if(p[0]==='admin'){
   if(!admin(user))return json({error:'Chỉ chủ trang được quản trị'},403);
+  if(p[1]==='user-activity'&&req.method==='GET'){
+   const q=new URL(req.url).searchParams;const a=await db.prepare('SELECT id FROM accounts WHERE username=?').bind(text(q.get('username'),32)).first();if(!a)fail('Tài khoản này không tồn tại',404);
+   const kind=q.get('kind');const section=q.get('section')||'ledger';const size=Math.min(100,Math.max(1,Number(q.get('size'))||10));const page=Math.max(1,Math.floor(Number(q.get('page'))||1));let from='',where='',order='';
+   if(section==='ledger'){from="wallet_ledger l LEFT JOIN orders o ON l.kind='purchase' AND o.id=l.source_id AND o.user_id=l.user_id LEFT JOIN series s ON s.id=o.series_id";where="l.user_id=?"+(kind==='deposit'?" AND l.amount>0":kind==='purchase'?" AND l.amount<0":"");order='l.created_at DESC,l.id DESC'}
+   else if(section==='purchased'){from='orders o JOIN series s ON s.id=o.series_id';where="o.user_id=? AND o.status='paid'";order='o.created_at DESC,o.id DESC'}
+   else if(section==='watched'){from='watch_history w JOIN series s ON s.id=w.series_id';where='w.user_id=?';order='w.updated_at DESC,w.series_id'}else fail('Mục không hợp lệ');
+   const fields=section==='ledger'?'l.id,l.amount,l.kind,l.created_at,s.title':section==='purchased'?'o.id,o.amount,o.created_at,s.title':'w.series_id AS id,w.episode_number,w.position,w.completed,w.updated_at AS created_at,s.title';
+   const total=(await db.prepare('SELECT count(*) AS n FROM '+from+' WHERE '+where).bind(a.id).first()).n;
+   return json({balance:await balance(a.id),total,rows:(await db.prepare('SELECT '+fields+' FROM '+from+' WHERE '+where+' ORDER BY '+order+' LIMIT ? OFFSET ?').bind(a.id,size,(page-1)*size).all()).results});
+  }
   if(p[1]==='user-list'&&req.method==='GET'){return json({users:(await db.prepare("SELECT username,CASE WHEN role='admin' THEN 'admin' WHEN vip=1 THEN 'vip' ELSE 'viewer' END AS role,created_at FROM accounts ORDER BY username COLLATE NOCASE").all()).results})}
   if(p[1]==='users'&&req.method==='GET'){const username=(new URL(req.url).searchParams.get('username')||'').trim().toLowerCase();const account=await db.prepare('SELECT username,role,vip FROM accounts WHERE username=?').bind(username).first();return account?json({account:{username:account.username,role:account.role==='admin'?'admin':account.vip?'vip':'viewer'}}):json({error:'Tài khoản này không tồn tại'},404)}
   if(p[1]==='free-access'&&req.method==='GET'){const id=text(new URL(req.url).searchParams.get('seriesId'),64);return json({users:(await db.prepare('SELECT a.username,c.created_at FROM complimentary_access c JOIN accounts a ON a.id=c.user_id WHERE c.series_id=? ORDER BY a.username COLLATE NOCASE').bind(id).all()).results})}
