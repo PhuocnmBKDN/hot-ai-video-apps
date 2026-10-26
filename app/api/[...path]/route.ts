@@ -46,7 +46,7 @@ async function route(req:Request){
  if(p[0]==='qr'){const key=await setting('qr');if(!key)return json({error:'Chưa cấu hình thanh toán'},503);const obj=await bucket.get(key);return obj?new Response(obj.body,{headers:{'Content-Type':obj.httpMetadata?.contentType||'image/png','Cache-Control':'no-store'}}):json({error:'QR chưa có'},404)}
  if(p[0]==='wallet'){
   if(!user)return json({error:'Đăng nhập để sử dụng ví'},401);
-  if(req.method==='GET')return json({balance:await balance(user.userId),ledger:(await db.prepare('SELECT id,amount,kind,source_id,created_at FROM wallet_ledger WHERE user_id=? ORDER BY created_at DESC LIMIT 100').bind(user.userId).all()).results,deposits:(await db.prepare('SELECT id,amount,status,created_at FROM deposits WHERE user_id=? ORDER BY created_at DESC LIMIT 30').bind(user.userId).all()).results});
+  if(req.method==='GET')return json({balance:await balance(user.userId),ledger:(await db.prepare("SELECT l.id,l.amount,l.kind,l.source_id,l.created_at,s.title AS film_title FROM wallet_ledger l LEFT JOIN orders o ON l.kind='purchase' AND o.id=l.source_id AND o.user_id=l.user_id LEFT JOIN series s ON s.id=o.series_id WHERE l.user_id=? ORDER BY l.created_at DESC LIMIT 100").bind(user.userId).all()).results,deposits:(await db.prepare('SELECT id,amount,status,created_at FROM deposits WHERE user_id=? ORDER BY created_at DESC LIMIT 30').bind(user.userId).all()).results});
   if(p[1]==='buy'){
    const b=await req.json() as any;const f=await db.prepare('SELECT * FROM series WHERE id=? AND published=1 AND deleted_at IS NULL').bind(text(b.seriesId,64)).first();if(!f)fail('Không tìm thấy phim');
    if(admin(user))return json({alreadyUnlocked:true});
