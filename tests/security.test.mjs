@@ -182,3 +182,5 @@ for(const [range,status,body,contentRange] of [['bytes=0-1',206,'te','bytes 0-1/
 }
 const head=await api.GET(new Request(origin+'/api/video/preview1',{method:'HEAD'}));assert.equal(head.status,200);assert.equal(head.headers.get('Content-Length'),'10');assert.equal(await head.text(),'');
 console.log('PASS: seek byte probes, open-ended and suffix ranges, EOF clamping, unsatisfiable ranges and HEAD.');
+
+globalThis.__testUser=bob;const ownWatch=(await call('watch-history')).body;assert(ownWatch.episodes.some(e=>e.episode_id==='preview1'));globalThis.__testUser=alice;assert(!(await call('watch-history')).body.episodes.some(e=>e.episode_id==='preview1'));globalThis.__testUser=null;assert.equal((await call('watch-history')).status,401);console.log('PASS: watched episode markers persist and are isolated by account.');
