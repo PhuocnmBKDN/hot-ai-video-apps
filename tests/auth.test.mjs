@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import {DatabaseSync} from 'node:sqlite';
 import {readFileSync} from 'node:fs';
 import ts from 'typescript';
-const sqlite=new DatabaseSync(':memory:');sqlite.exec(readFileSync('drizzle/0002_accounts.sql','utf8'));sqlite.exec(readFileSync('drizzle/0003_client_password.sql','utf8'));
+const sqlite=new DatabaseSync(':memory:');sqlite.exec(readFileSync('drizzle/0002_accounts.sql','utf8'));sqlite.exec(readFileSync('drizzle/0003_client_password.sql','utf8'));sqlite.exec(readFileSync('drizzle/0009_vip.sql','utf8'));
 const db={prepare(sql){let args=[];const q={bind(...a){args=a;return q},async first(){return sqlite.prepare(sql).get(...args)||null},async run(){return sqlite.prepare(sql).run(...args)}};return q}};
 globalThis.__authEnv={DB:db};
 const source=readFileSync('server/auth.ts','utf8').replace("import {env} from 'cloudflare:workers';","const env=globalThis.__authEnv;");
