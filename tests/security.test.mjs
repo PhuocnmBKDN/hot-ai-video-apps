@@ -5,7 +5,7 @@ import ts from 'typescript';
 const sqlite=new DatabaseSync(':memory:');for(const file of readdirSync('drizzle').filter(f=>f.endsWith('.sql')).sort())sqlite.exec(readFileSync('drizzle/'+file,'utf8'));
 const objects=new Map();
 const db={prepare(sql){let args=[];const q={bind(...a){args=a;return q},async first(){return sqlite.prepare(sql).get(...args)||null},async all(){return {results:sqlite.prepare(sql).all(...args)}},async run(){return sqlite.prepare(sql).run(...args)}};return q},async batch(list){sqlite.exec('BEGIN');try{const out=[];for(const q of list)out.push(await q.run());sqlite.exec('COMMIT');return out}catch(e){sqlite.exec('ROLLBACK');throw e}}};
-globalThis.__testEnv={DB:db,ADMIN_EMAIL:'owner@test.local',BUCKET:{async get(k){return objects.has(k)?{body:objects.get(k),size:objects.get(k).length,httpMetadata:{contentType:'video/mp4'}}:null},async put(k,v){objects.set(k,Buffer.from(await new Response(v).arrayBuffer()))},async delete(k){objects.delete(k)}}};globalThis.__testUser=null;
+globalThis.__testEnv={DB:db,ADMIN_EMAIL:'owner@test.local',BUCKET:{async head(k){return objects.has(k)?{size:objects.get(k).length}:null},async get(k,options){const body=objects.get(k);if(!body)return null;const r=options?.range;return {body:r?body.subarray(r.offset,r.offset+r.length):body,size:body.length,httpMetadata:{contentType:'video/mp4'}}},async put(k,v){objects.set(k,Buffer.from(await new Response(v).arrayBuffer()))},async delete(k){objects.delete(k)}}};globalThis.__testUser=null;
 let source=readFileSync('app/api/[...path]/route.ts','utf8').replace("import { env } from 'cloudflare:workers';","const env=globalThis.__testEnv;").replace("import {media} from '../../../server/media';","const media=()=>env.BUCKET;").replace("import { currentUser } from '../../../server/auth';","const currentUser=async()=>globalThis.__testUser;");
 const js=ts.transpileModule(source,{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.ES2022}}).outputText;
 const api=await import('data:text/javascript;base64,'+Buffer.from(js).toString('base64'));
@@ -175,3 +175,10 @@ globalThis.__testUser=bob;assert.equal((await call('watch-history',{episodeId:'p
 globalThis.__testUser=owner;const watched=(await call('admin/user-activity?username=bob&section=watched')).body;assert.equal(watched.total,1);assert.equal(watched.rows[0].position,12);
 globalThis.__testUser=null;assert.equal((await call('watch-history',{episodeId:'preview1',position:1})).status,401);
 console.log('PASS: private admin user activity, ledger filters, pagination, purchase lists and authenticated watch history.');
+
+globalThis.__testUser=bob;objects.set(sqlite.prepare('SELECT object_key FROM episodes WHERE id=?').get('preview1').object_key,Buffer.from('test-video'));
+for(const [range,status,body,contentRange] of [['bytes=0-1',206,'te','bytes 0-1/10'],['bytes=5-',206,'video','bytes 5-9/10'],['bytes=-3',206,'deo','bytes 7-9/10'],['bytes=8-999',206,'eo','bytes 8-9/10'],['bytes=10-',416,'','bytes */10'],['bytes=-0',416,'','bytes */10']]){
+ const response=await api.GET(new Request(origin+'/api/video/preview1',{headers:{Range:range}}));assert.equal(response.status,status,range);assert.equal(response.headers.get('Content-Range'),contentRange);assert.equal(await response.text(),body);if(status===206)assert.equal(Number(response.headers.get('Content-Length')),body.length);
+}
+const head=await api.GET(new Request(origin+'/api/video/preview1',{method:'HEAD'}));assert.equal(head.status,200);assert.equal(head.headers.get('Content-Length'),'10');assert.equal(await head.text(),'');
+console.log('PASS: seek byte probes, open-ended and suffix ranges, EOF clamping, unsatisfiable ranges and HEAD.');

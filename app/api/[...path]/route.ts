@@ -25,7 +25,7 @@ export async function cleanupMedia(){const db=E().DB;const rows=(await db.prepar
 async function hasAccess(userId:string,seriesId:string){return !!await E().DB.prepare('SELECT 1 AS ok FROM grants WHERE user_id=? AND series_id=? UNION ALL SELECT 1 AS ok FROM complimentary_access WHERE user_id=? AND series_id=? LIMIT 1').bind(userId,seriesId,userId,seriesId).first()}
 async function route(req:Request){
  const p=new URL(req.url).pathname.split('/').slice(2); const db=E().DB; const bucket=media(); const user=await currentUser(req);
- if(req.method!=='GET'&&req.headers.get('origin')!==new URL(req.url).origin) return json({error:'Yêu cầu khác nguồn bị từ chối'},403);
+ if(req.method!=='GET'&&!(req.method==='HEAD'&&p[0]==='video')&&req.headers.get('origin')!==new URL(req.url).origin) return json({error:'Yêu cầu khác nguồn bị từ chối'},403);
  if(p[0]==='me')return json({user:user?{email:user.email,role:user.role||'viewer'}:null,admin:admin(user)});
  if(p[0]==='watch-history'&&req.method==='POST'){
   if(!user)fail('Cần đăng nhập',401);const b:any=await req.json();const e=await db.prepare('SELECT e.id,e.series_id,e.number,s.paid_from,s.published FROM episodes e JOIN series s ON s.id=e.series_id WHERE e.id=? AND s.deleted_at IS NULL').bind(text(b.episodeId,64)).first();
@@ -45,9 +45,22 @@ async function route(req:Request){
    if(!user)return json({error:'Cần đăng nhập'},401);
    if(!await hasAccess(user.userId,ep.series_id))return json({error:'Tập này cần mở khóa'},403);
   }
-  const obj=await bucket.get(ep.object_key,{range:req.headers});if(!obj)return json({error:'Video chưa sẵn sàng'},404);
-  const h=new Headers({'Content-Type':'video/mp4','Cache-Control':'private, no-store','Accept-Ranges':'bytes','X-Content-Type-Options':'nosniff'});
-  let status=200;if(obj.range&&'offset' in obj.range){const start=obj.range.offset||0;const len=obj.range.length||obj.size;h.set('Content-Range',`bytes ${start}-${start+len-1}/${obj.size}`);h.set('Content-Length',String(len));status=206}else h.set('Content-Length',String(obj.size));return new Response(obj.body,{status,headers:h});
+  const meta=await bucket.head(ep.object_key);if(!meta)return json({error:'Video chưa sẵn sàng'},404);
+  const h=new Headers({'Content-Type':'video/mp4','Cache-Control':'private, no-store, no-transform','Accept-Ranges':'bytes','X-Content-Type-Options':'nosniff'});if(meta.httpEtag)h.set('ETag',meta.httpEtag);
+  let status=200,start=0,end=meta.size-1;const range=req.headers.get('range');
+  // Resolve byte ranges against the full size, including Safari's suffix reads.
+  if(range&&req.method!=='HEAD'){
+   const m=/^bytes=(\d*)-(\d*)$/i.exec(range.trim());
+   if(!m||(!m[1]&&!m[2]))return new Response(null,{status:416,headers:{...Object.fromEntries(h),'Content-Range':`bytes */${meta.size}`}});
+   if(!m[1]){const suffix=Number(m[2]);start=Math.max(0,meta.size-suffix);if(!Number.isSafeInteger(suffix)||suffix<=0)start=meta.size}
+   else{start=Number(m[1]);if(m[2])end=Math.min(Number(m[2]),end)}
+   if(!Number.isSafeInteger(start)||!Number.isSafeInteger(end)||start<0||start>=meta.size||end<start)return new Response(null,{status:416,headers:{...Object.fromEntries(h),'Content-Range':`bytes */${meta.size}`}});
+   status=206;h.set('Content-Range',`bytes ${start}-${end}/${meta.size}`);
+  }
+  h.set('Content-Length',String(end-start+1));if(req.method==='HEAD')return new Response(null,{headers:h});
+  const obj=await bucket.get(ep.object_key,{...(status===206?{range:{offset:start,length:end-start+1}}:{}),...(meta.etag?{onlyIf:{etagMatches:meta.etag}}:{})});
+  if(!obj)return json({error:'Video chưa sẵn sàng'},404);if(!('body' in obj))return new Response(null,{status:412,headers:{'Cache-Control':'no-store'}});
+  return new Response(obj.body,{status,headers:h});
  }
  if(p[0]==='poster'){const f=await db.prepare('SELECT id,published FROM series WHERE id=? AND deleted_at IS NULL').bind(p[1]).first();if(!f||(!f.published&&!admin(user)))return json({error:'Không tìm thấy poster'},404);const obj=await bucket.get('posters/'+f.id);return obj?new Response(obj.body,{headers:{'Content-Type':obj.httpMetadata?.contentType||'image/png','Cache-Control':'no-store','X-Content-Type-Options':'nosniff'}}):json({error:'Không có poster'},404)}
  if(p[0]==='qr'){const key=await setting('qr');if(!key)return json({error:'Chưa cấu hình thanh toán'},503);const obj=await bucket.get(key);return obj?new Response(obj.body,{headers:{'Content-Type':obj.httpMetadata?.contentType||'image/png','Cache-Control':'no-store'}}):json({error:'QR chưa có'},404)}
