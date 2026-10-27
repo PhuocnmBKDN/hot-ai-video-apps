@@ -1,0 +1,1 @@
+export const GENRES=['Tình cảm','Tổng tài','Hôn nhân hợp đồng','Cưới trước yêu sau','Trả thù','Trọng sinh','Xuyên không','Hệ thống','Tu tiên','Cổ trang','Huyền huyễn','Đô thị','Gia đình','Hài hước','Hành động','Bí ẩn','Kinh dị','Khoa học viễn tưởng','Sinh tồn','Học đường','Ẩn giấu thân phận','Nữ cường','Người sói','Ma cà rồng'];
