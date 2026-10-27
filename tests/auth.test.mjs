@@ -2,8 +2,8 @@ import assert from 'node:assert/strict';
 import {DatabaseSync} from 'node:sqlite';
 import {readFileSync} from 'node:fs';
 import ts from 'typescript';
-const sqlite=new DatabaseSync(':memory:');sqlite.exec(readFileSync('drizzle/0002_accounts.sql','utf8'));sqlite.exec(readFileSync('drizzle/0003_client_password.sql','utf8'));sqlite.exec(readFileSync('drizzle/0009_vip.sql','utf8'));
-const db={prepare(sql){let args=[];const q={bind(...a){args=a;return q},async first(){return sqlite.prepare(sql).get(...args)||null},async run(){return sqlite.prepare(sql).run(...args)}};return q}};
+const sqlite=new DatabaseSync(':memory:');sqlite.exec(readFileSync('drizzle/0002_accounts.sql','utf8'));sqlite.exec(readFileSync('drizzle/0003_client_password.sql','utf8'));sqlite.exec(readFileSync('drizzle/0009_vip.sql','utf8'));sqlite.exec(readFileSync('drizzle/0014_playback_security.sql','utf8'));
+const db={prepare(sql){let args=[];const q={bind(...a){args=a;return q},async first(){return sqlite.prepare(sql).get(...args)||null},async run(){return sqlite.prepare(sql).run(...args)}};return q},async batch(queries){sqlite.exec('BEGIN');try{for(const q of queries)await q.run();sqlite.exec('COMMIT')}catch(e){sqlite.exec('ROLLBACK');throw e}}};
 globalThis.__authEnv={DB:db};
 const source=readFileSync('server/auth.ts','utf8').replace("import {env} from 'cloudflare:workers';","const env=globalThis.__authEnv;");
 const js=ts.transpileModule(source,{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.ES2022}}).outputText;
@@ -32,3 +32,5 @@ assert(await api.verifyPassword(proof,otherHash));assert(!await api.verifyPasswo
 for(let i=0;i<11;i++)await call('login',{username:'missing_user',password},{'cf-connecting-ip':'192.0.2.2'});
 assert.equal((await call('login',{username:'missing_user',password},{'cf-connecting-ip':'192.0.2.2'})).status,401,'Repeated attempts are never locked for 15 minutes');
 console.log('PASS: username/password registration, password hashing and salts, signed-out/expired sessions, secure cookies, origin protection, role escalation denial, unrestricted retries and 1–30 character passwords, no Sites identity dependency.');
+
+assert.equal((await api.auth(new Request(base+'/api/auth/login',{method:'POST',headers:{Origin:base,'Content-Type':'application/json'},body:'null'}))).status,400);

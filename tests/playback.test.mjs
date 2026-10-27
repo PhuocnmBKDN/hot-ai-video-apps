@@ -11,3 +11,12 @@ assert.equal((await issuePlayback(request('/api/playback/ep1',{method:'POST'}),u
 await playbackControl(request('/api/playback-control/release',{method:'POST',body:JSON.stringify({token:a.token})}),user,true);assert.equal((await validatePlayback(request(a.src),user,'ep1')).status,409);assert.equal((await issuePlayback(request('/api/playback/ep1',{method:'POST'}),user,ep,'abcdef-00000000003')).status,200);
 globalThis.playbackEnv.PLAYBACK_ISSUE_LIMIT={async limit(){return {success:false}}};assert.equal((await issuePlayback(request('/api/playback/ep1',{method:'POST'}),user,ep,'abcdef-00000000004')).status,429);
 console.log('PASS: encrypted playback tokens, session/episode/account binding, tamper rejection, cross-site denial, 2 leases, release and rate limit.');
+
+globalThis.playbackEnv.PLAYBACK_ISSUE_LIMIT={async limit(){return {success:true}}};sql.exec('DELETE FROM playback_leases');
+const session1=await (await issuePlayback(request('/api/playback/ep1',{method:'POST'}),user,ep,'abcdef-11111111111')).json();sql.prepare('UPDATE playback_leases SET expires_at=?').run(Date.now()-1);
+const session2=await (await issuePlayback(request('/api/playback/ep1',{method:'POST'}),user,ep,'abcdef-22222222222')).json();const session3=await (await issuePlayback(request('/api/playback/ep1',{method:'POST'}),user,ep,'abcdef-33333333333')).json();
+const heartbeat=token=>playbackControl(request('/api/playback-control/heartbeat',{method:'POST',body:JSON.stringify({token})}),user);
+assert.equal((await heartbeat(session1.token)).status,409,'Expired lease cannot resurrect when 2 other players are active');
+await playbackControl(request('/api/playback-control/release',{method:'POST',body:JSON.stringify({token:session2.token})}),user,true);assert.equal((await heartbeat(session1.token)).status,200,'Paused player can resume when a slot becomes available');
+assert.equal((await heartbeat(session2.token)).status,409,'Released lease heartbeat must fail');
+console.log('PASS: paused/expired lease renewal obeys the two-player limit and revoked leases stay revoked.');

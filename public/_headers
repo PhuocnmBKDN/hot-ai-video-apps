@@ -1,2 +1,6 @@
 /*
   Cache-Control: public, no-transform
+  X-Content-Type-Options: nosniff
+  X-Frame-Options: DENY
+  Referrer-Policy: same-origin
+  Content-Security-Policy: frame-ancestors 'none'; object-src 'none'; base-uri 'self'

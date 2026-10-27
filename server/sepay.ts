@@ -21,6 +21,7 @@ export async function sepayWebhook(req:Request){
  const digest=async(s:string)=>new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(s)));const [a,b]=await Promise.all([digest(supplied),digest(expected)]);let diff=0;for(let i=0;i<a.length;i++)diff|=a[i]^b[i];if(diff)return json({success:false},401);
  if(Number(req.headers.get('content-length')||0)>16384)return json({success:false},413);
  let body:any;try{const raw=await req.text();if(raw.length>16384)return json({success:false},413);body=JSON.parse(raw)}catch{return json({success:false},400)}
+ if(!body||typeof body!=='object'||Array.isArray(body))return json({success:false},400);
  const recipient=await config();const enabled=await E().DB.prepare("SELECT value FROM settings WHERE key='sepay_enabled'").first();if(enabled?.value!=='1')return json({success:false},503);
  if(body.transferType!=='in')return json({success:true});
  if(body.gateway?.toLowerCase()!=='tpbank'||String(body.accountNumber)!==recipient?.account)return json({success:true});
