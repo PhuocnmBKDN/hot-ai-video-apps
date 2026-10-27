@@ -1,5 +1,6 @@
 import {env} from 'cloudflare:workers';
 import {currentUser} from './auth';
+import {importGenreNames,attachImportGenres} from './import-genres';
 
 // Session authentication is identical to the admin website. No storage keys or
 // privileged API token are issued to the desktop client.
@@ -8,9 +9,9 @@ const json=(body:unknown,status=200)=>Response.json(body,{status,headers:{'Cache
 const fail=(message:string,status=400):never=>{throw Object.assign(new Error(message),{status})};
 const text=(v:unknown,max:number)=>typeof v==='string'&&v.trim().length<=max?v.trim():fail('Thông tin phim không hợp lệ');
 const hex=(v:unknown)=>typeof v==='string'&&/^[a-f0-9]{64}$/.test(v)?v:fail('Thiếu SHA-256 hợp lệ');
-const movie=(id:string)=>E().DB.prepare('SELECT i.*,s.deleted_at,s.published FROM videolink_imports i JOIN series s ON s.id=i.series_id WHERE i.source_id=?').bind(id).first();
+const movie=(id:string)=>E().DB.prepare('SELECT i.*,s.deleted_at,s.published,s.genre FROM videolink_imports i JOIN series s ON s.id=i.series_id WHERE i.source_id=?').bind(id).first();
 const episodes=(id:string)=>E().DB.prepare('SELECT v.number,v.sha256,v.size,e.id FROM videolink_episodes v JOIN episodes e ON e.id=v.episode_id AND e.series_id=v.series_id AND e.number=v.number WHERE v.series_id=? ORDER BY v.number').bind(id).all();
-async function status(f:any){const rows=(await episodes(f.series_id)).results;return {seriesId:f.series_id,sourceId:f.source_id,variant:f.variant,expected:f.expected,posterSha256:f.poster_sha256,complete:!!f.completed_at&&rows.length===f.expected,episodes:rows}}
+async function status(f:any){const rows=(await episodes(f.series_id)).results;return {seriesId:f.series_id,sourceId:f.source_id,variant:f.variant,expected:f.expected,genres:(f.genre||'').split(',').map((s:string)=>s.trim()).filter(Boolean),posterSha256:f.poster_sha256,complete:!!f.completed_at&&rows.length===f.expected,episodes:rows}}
 async function body(req:Request){if(Number(req.headers.get('content-length')||0)>1024*1024)fail('Yêu cầu quá lớn',413);const raw=await req.text();if(raw.length>1024*1024)fail('Yêu cầu quá lớn',413);try{return JSON.parse(raw)}catch{return fail('JSON không hợp lệ')}}
 function image(bytes:Uint8Array,type:string){
  const ascii=(a:number,b:number)=>new TextDecoder().decode(bytes.slice(a,b));
@@ -20,9 +21,11 @@ async function route(req:Request){
  const user=await currentUser(req);if(user?.role!=='admin')return json({error:'Đăng nhập tài khoản admin HotAI để upload'},403);
  const url=new URL(req.url);if(req.method!=='GET'&&req.headers.get('origin')!==url.origin)return json({error:'Yêu cầu khác nguồn bị từ chối'},403);
  const path=url.pathname.split('/').filter(Boolean).slice(3),db=E().DB,bucket=E().BUCKET;
+ if(!path.length&&req.method==='GET')return json({genreImportVersion:1});
  if(!path.length&&req.method==='POST'){
   const b=await body(req),sourceId=text(b.sourceId,30),variant=text(b.variant,250),title=text(b.title,120),description=text(b.description,1500),expected=Number(b.expected);
   if(!/^[0-9]{10,30}$/.test(sourceId)||!variant||!title||!description||!Number.isInteger(expected)||expected<1||expected>5000)fail('Cần tên tiếng Anh, giới thiệu tiếng Việt và tổng tập hợp lệ');
+  const genres=importGenreNames(b.genres);
   const seriesId='tiktok-'+sourceId;
   if(!await movie(sourceId)){
    if(await db.prepare('SELECT id FROM series WHERE id=?').bind(seriesId).first())fail('Mã phim đã tồn tại ngoài luồng VideoLink',409);
@@ -33,7 +36,8 @@ async function route(req:Request){
   }
   const f=await movie(sourceId);if(!f||f.deleted_at)fail('Phim đã bị xóa trên HotAI; không tự tạo lại',409);
   if(f.variant!==variant||f.expected!==expected)fail('Phim này đã được tạo với lựa chọn hình/tiếng/phụ đề khác. Kiểm tra trên HotAI trước khi thay bản.',409);
-  return json(await status(f));
+  await attachImportGenres(db,seriesId,genres);
+  return json(await status(await movie(sourceId)));
  }
  if(!/^[0-9]{10,30}$/.test(path[0]||''))fail('Không tìm thấy phim',404);
  const f=await movie(path[0]);if(!f||f.deleted_at)fail('Không tìm thấy phim đã nhập',404);
