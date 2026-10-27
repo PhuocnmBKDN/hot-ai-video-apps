@@ -9,7 +9,7 @@
     "dev": "vite --host 127.0.0.1 --port 5174",
     "build": "vite build",
     "typecheck": "tsc --noEmit",
-    "test": "node tests/security.test.mjs && node tests/auth.test.mjs && node tests/sepay.test.mjs && node tests/imports.test.mjs",
+    "test": "node tests/security.test.mjs && node tests/auth.test.mjs && node tests/sepay.test.mjs && node tests/imports.test.mjs && node tests/playback.test.mjs",
     "deploy": "node scripts/deploy.mjs",
     "db:local": "wrangler d1 migrations apply DB --local",
     "db:remote": "wrangler d1 migrations apply DB --remote",
@@ -17,9 +17,9 @@
     "test:runtime": "node tests/runtime-smoke.mjs"
   },
   "dependencies": {
+    "lucide-react": "^1.31.0",
     "react": "19.2.6",
-    "react-dom": "19.2.6",
-    "lucide-react": "^1.31.0"
+    "react-dom": "19.2.6"
   },
   "devDependencies": {
     "@cloudflare/vite-plugin": "1.37.1",

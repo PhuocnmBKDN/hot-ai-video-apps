@@ -1,0 +1,13 @@
+import {useEffect,useRef,useState,type VideoHTMLAttributes,type RefObject} from 'react';
+export default function ProtectedVideo({episodeId,username,videoRef,startAt=0,...props}:{episodeId:string;username?:string;startAt?:number;videoRef:RefObject<HTMLVideoElement|null>}&VideoHTMLAttributes<HTMLVideoElement>){
+ const [source,setSource]=useState<any>(null),[error,setError]=useState(''),[attempt,setAttempt]=useState(0);const resume=useRef(startAt);const lastEpisode=useRef(episodeId);const propsRef=useRef(props);propsRef.current=props;
+ useEffect(()=>{let alive=true,token='';if(lastEpisode.current!==episodeId){resume.current=startAt;lastEpisode.current=episodeId;}const abort=new AbortController();setSource(null);setError('');
+ let device=sessionStorage.getItem('hotai-playback-device');if(!device){device=crypto.randomUUID();sessionStorage.setItem('hotai-playback-device',device)}
+ fetch('/api/playback/'+episodeId,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({device}),signal:abort.signal}).then(async r=>{const b:any=await r.json();if(!r.ok)throw Error(b.error||'Không thể mở phiên phát');if(!alive)return;token=b.token;setSource(b);const video=videoRef.current;if(!video)return;
+ video.src=b.src;
+ }).catch(e=>{if(alive&&e.name!=='AbortError')setError(e.message)});
+ const heartbeat=setInterval(()=>{if(token&&videoRef.current&&!videoRef.current.paused)fetch('/api/playback-control/heartbeat',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({token})}).catch(()=>{})},60000);
+ return()=>{alive=false;abort.abort();clearInterval(heartbeat);if(token)fetch('/api/playback-control/release',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({token}),keepalive:true}).catch(()=>{});};
+ },[episodeId,attempt]);
+ return <div className="protected-player" onContextMenu={e=>e.preventDefault()}><video {...props} ref={videoRef} controlsList="nodownload noremoteplayback" disablePictureInPicture disableRemotePlayback onLoadedMetadata={e=>{if(resume.current>0&&Number.isFinite(e.currentTarget.duration))e.currentTarget.currentTime=Math.min(resume.current,e.currentTarget.duration);propsRef.current.onLoadedMetadata?.(e)}} onError={()=>{if(source)setError('Không tải được video hoặc phiên phát đã hết hạn. Bấm Phát lại để tiếp tục.')}}/><span className="video-watermark" aria-hidden="true">HOT AI DRAMA · {username||'Xem thử'}</span>{!source&&!error&&<span className="player-status" role="status">Đang mở phiên phát…</span>}{error&&<div className="player-status" role="alert"><p>{error}</p><button className="mini" onClick={()=>{resume.current=videoRef.current?.currentTime||0;setAttempt(n=>n+1)}}>Phát lại</button></div>}</div>
+}

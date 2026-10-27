@@ -42,5 +42,23 @@
       "zone_id": "db6244b035d441c19b2f9bed1fe8a427"
     }
   ],
-  "preview_urls": false
+  "preview_urls": false,
+  "ratelimits": [
+    {
+      "name": "PLAYBACK_ISSUE_LIMIT",
+      "namespace_id": "431001",
+      "simple": {
+        "limit": 40,
+        "period": 60
+      }
+    },
+    {
+      "name": "PLAYBACK_READ_LIMIT",
+      "namespace_id": "431002",
+      "simple": {
+        "limit": 240,
+        "period": 60
+      }
+    }
+  ]
 }
