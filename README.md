@@ -49,3 +49,15 @@ Use `main` for the current production source. Commit and push changes after veri
 For a fresh checkout: `npm ci`, `npm run typecheck`, `npm test`, then authenticate Wrangler before deployment. The configured Cloudflare resources already exist; do not recreate or re-import them during routine deployment. See [SePay setup](SEPAY-SETUP.md) for wallet webhook configuration. Secrets stay in Cloudflare, media in R2, and live data in D1; Git backs up source only.
 
 Customer records and transactions belong only in the live D1 database. Receipt images and media belong in private R2. Never commit production data exports, customer records, session data or credentials. SQL files in `drizzle/` define schema migrations only, not a copy of customer data. Test fixtures are synthetic.
+
+## VideoLink desktop import
+
+VideoLink 0.11 connects with an existing admin session through the normal HotAI sign-in flow. No new storage/API secret is distributed. Migration `0013_videolink_imports.sql` adds source/episode receipts; apply it before deploying this API.
+
+`POST /api/admin/imports` accepts a TikTok drama ID, immutable render variant, English title, Vietnamese description and expected episode count. It creates one **draft** per TikTok drama ID, with an empty genre and the usual first-quarter-free boundary. Existing movie metadata, payment settings and published status are not changed by retries. Admin reviews price/access and publishes from the normal admin page.
+
+The desktop waits for the complete local film and validates all final MP4s before creating a remote record. It uploads the TikTok poster, then sequentially calls `/api/admin/imports/:sourceId/episodes/:number`. GET on the episode route confirms an existing stored file so resume can skip its body. R2 verifies the supplied SHA-256 while receiving each stream. The server acknowledges each episode only after R2 and the episode database record succeed. Limits: 90 MiB per MP4, 8 MiB per poster (JPEG/PNG/WebP/AVIF). Differing content or render variants return 409 rather than overwrite an existing episode.
+
+`POST /api/admin/imports/:sourceId/complete` checks poster, contiguous episode numbers, sizes and checksums against the complete client manifest. Completion does not publish the draft. Deleted films are not silently recreated. All routes require a live admin cookie; mutations also enforce the existing same-Origin rule. The client encrypts its session using Windows DPAPI, outside its source repo; passwords and sessions never enter Git.
+
+`npm test` includes import authorization, CSRF, checksums, deduplication, interrupted resume, missing/deleted episodes and draft visibility. For a real disposable workerd/D1/R2 integration test, build first, set `TEST_MEDIA` to a small real MP4 fixture, then run `node tests/imports-runtime-smoke.mjs`. It starts an isolated Miniflare instance on port 5188, creates only synthetic local data, and verifies uploaded playback/poster bytes and checksum rejection. `TEST_DESKTOP_PROBE` and `TEST_DESKTOP_ROOT` may optionally connect a local-only Windows test harness; no production origin is accepted by this test.
