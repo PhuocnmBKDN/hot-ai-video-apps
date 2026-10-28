@@ -81,5 +81,8 @@
 
 .poster-source-option{display:flex;align-items:flex-start;gap:10px;min-height:44px;cursor:pointer;line-height:1.5}.poster-source-option input[type="checkbox"]{width:22px;height:22px;flex:0 0 22px;margin:2px 0 0;accent-color:var(--accent,#ff2068)}.poster-source-option span{min-width:0;overflow-wrap:anywhere}
 .poster-source-control>p[role="status"]{min-height:1.5em;color:#ffd07b;font-size:13px;overflow-wrap:anywhere}
+.card-title{font-size:17px;font-weight:750;line-height:1.35;min-height:46px;color:#fff;letter-spacing:-.15px}
+@media(max-width:800px){.card-title{font-size:14px;font-weight:750;line-height:1.35;min-height:38px}}
+@media(max-width:350px){.card-title{font-size:13px;min-height:36px}}
 
 .poster-upload{min-width:0}.poster-paste-area{display:flex;flex-direction:column;align-items:center;gap:10px;border:1px dashed #75667e;border-radius:10px;background:#111015;padding:18px 12px;text-align:center;font-size:13px;color:var(--muted);margin:14px 0}.poster-paste-area:focus,.poster-paste-area:focus-within{outline:2px solid #ff2068;outline-offset:3px}.poster-paste-area .mini{display:inline-flex;align-items:center;justify-content:center;gap:8px;min-height:44px;max-width:100%;white-space:normal}.poster-upload-preview{margin:12px 0;padding:10px;border:1px solid var(--line);border-radius:10px;max-width:260px}.poster-upload-preview img{display:block;max-width:100%;max-height:280px;object-fit:contain;margin:0 auto;border-radius:6px}.poster-upload-preview figcaption{font-size:12px;color:var(--muted);overflow-wrap:anywhere;margin:10px 0}.poster-upload>p[role="status"]{font-size:13px;overflow-wrap:anywhere}.poster-upload>.mini{min-height:44px}
