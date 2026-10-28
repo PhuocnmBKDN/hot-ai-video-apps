@@ -19,7 +19,7 @@ export async function catalogBase(db:any,drafts:boolean){
   const settings=new Map<string,string>(settingsRows.results.map((r:any)=>[r.key,r.value]));
   const episodes=new Map<string,any[]>();for(const e of episodeRows.results){const rows=episodes.get(e.series_id)||[];rows.push({id:e.id,number:e.number});episodes.set(e.series_id,rows)}
   const buyers=new Map(buyerRows.results.map((r:any)=>[r.series_id,r]));
-  const films=filmRows.results.map((f:any)=>{const stats:any=buyers.get(f.id),list=episodes.get(f.id)||[];return {...f,price:Number(settings.get('price:'+f.id)||10000),poster:!!settings.get('poster:'+f.id),buyers:stats?.buyers||0,hotScore:stats?.hotScore||0,episodes:list,total:list.length}});
+  const films=filmRows.results.map((f:any)=>{const stats:any=buyers.get(f.id),list=episodes.get(f.id)||[];return {...f,price:Number(settings.get('price:'+f.id)||10000),poster:!!settings.get('poster:'+f.id),posterFromEpisodeOne:settings.get('poster:frame:'+f.id)!=='no',buyers:stats?.buyers||0,hotScore:stats?.hotScore||0,episodes:list,total:list.length}});
   let recipient=null,genres:any;try{recipient=JSON.parse(settings.get('payment_recipient')||'null')}catch{}try{genres=JSON.parse(settings.get('genres')||'null')}catch{}
   if(!Array.isArray(genres))genres=[...new Set([...GENRES,...films.flatMap((f:any)=>f.genre.split(',').map((g:string)=>g.trim()).filter(Boolean))])].sort((a:any,b:any)=>a.localeCompare(b,'vi'));
   const data={films,genres,recipient,checkoutReady:!!recipient&&!!settings.get('qr')};

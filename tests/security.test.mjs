@@ -244,3 +244,28 @@ for(let i=0;i<120;i++){const key='cleanup-cost-fixture-'+i;sqlite.prepare('INSER
 console.log('PASS: warm catalog 1/2 SQL reads with live rights, immediate unpublish invalidation, lazy admin reads, zero duplicate progress writes, 1 HEAD for 8 seeks and 1 bulk R2 delete for 120 queued objects.');
 
 globalThis.__testUser=owner;await call('admin/publish',{id:preview.id,publish:false});const draftPoster=await api.GET(new Request(origin+'/api/poster/'+preview.id+'?v=private'));assert(draftPoster.headers.get('Cache-Control').includes('no-store'),'Draft posters must not remain cached across logout');await call('admin/publish',{id:preview.id,publish:true});console.log('PASS: draft images remain non-cacheable; browser caching is limited to published artwork.');
+
+// Poster source is per-film, defaults to episode one, and never removes uploaded artwork.
+globalThis.__testUser=owner;
+const sourceId=preview.id, uploadedKey='posters/'+sourceId, frameKey='previews/'+sourceId+'.jpg';
+objects.set(uploadedKey,Buffer.from('uploaded-poster-fixture'));objects.set(frameKey,Buffer.from('first-frame-fixture'));
+assert.equal((await call('admin/films?summary=1')).body.films.find(f=>f.id===sourceId).posterFromEpisodeOne,true);
+assert.equal((await call('catalog')).body.films.find(f=>f.id===sourceId).posterFromEpisodeOne,true);
+assert.equal((await call('poster/'+sourceId)).body,'first-frame-fixture','Default frame wins even with an uploaded poster');
+const sourceTimestamp=sqlite.prepare('SELECT updated_at FROM series WHERE id=?').get(sourceId).updated_at;
+assert.equal((await call('admin/poster-source',{seriesId:sourceId,fromEpisodeOne:false})).status,200);
+assert(sqlite.prepare('SELECT updated_at FROM series WHERE id=?').get(sourceId).updated_at>sourceTimestamp,'Image version advances on source changes');
+assert.equal((await call('poster/'+sourceId)).body,'uploaded-poster-fixture');
+assert.equal((await call('catalog')).body.films.find(f=>f.id===sourceId).posterFromEpisodeOne,false,'Warm catalog invalidates on source changes');
+assert.equal((await call('admin/films?summary=1')).body.films.find(f=>f.id===sourceId).posterFromEpisodeOne,false,'Selection persists on reload');
+assert.equal((await call('admin/poster-source',{seriesId:sourceId,fromEpisodeOne:'false'})).status,400);
+assert.equal((await call('admin/poster-source',{seriesId:'missing',fromEpisodeOne:true})).status,404);
+assert.equal((await call('admin/poster-source',{seriesId:sourceId,fromEpisodeOne:true},{Origin:'https://evil.local'})).status,403);
+globalThis.__testUser=bob;assert.equal((await call('admin/poster-source',{seriesId:sourceId,fromEpisodeOne:true})).status,403);
+globalThis.__testUser=null;assert.equal((await call('admin/poster-source',{seriesId:sourceId,fromEpisodeOne:true})).status,403);assert.equal((await call('poster/'+sourceId)).body,'uploaded-poster-fixture');
+globalThis.__testUser=owner;assert.equal((await call('admin/poster-source',{seriesId:sourceId,fromEpisodeOne:true})).status,200);
+assert.equal((await call('poster/'+sourceId)).body,'first-frame-fixture');assert(objects.has(uploadedKey),'Switching to a frame keeps the uploaded image');
+objects.delete(frameKey);assert.equal((await call('poster/'+sourceId)).body,'uploaded-poster-fixture','Missing frame falls back without a broken image');
+assert.equal((await call('admin/films?summary=1')).body.films.find(f=>f.id==='perf0').posterFromEpisodeOne,true,'Other films keep their default selection');
+objects.set(frameKey,Buffer.from('first-frame-fixture'));await call('admin/publish',{id:sourceId,publish:false});globalThis.__testUser=null;assert.equal((await call('poster/'+sourceId)).status,404,'Source preference does not expose drafts');
+console.log('PASS: per-film poster source, default frame priority, persisted toggles, cache invalidation, upload preservation, missing-frame fallback, admin authorization, CSRF and draft protection.');
