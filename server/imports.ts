@@ -1,3 +1,4 @@
+import {readObject} from '../lib/request-body';
 import {env} from 'cloudflare:workers';
 import {currentUser} from './auth';
 import {importGenreNames,attachImportGenres} from './import-genres';
@@ -12,7 +13,7 @@ const hex=(v:unknown)=>typeof v==='string'&&/^[a-f0-9]{64}$/.test(v)?v:fail('Thi
 const movie=(id:string)=>E().DB.prepare('SELECT i.*,s.deleted_at,s.published,s.genre FROM videolink_imports i JOIN series s ON s.id=i.series_id WHERE i.source_id=?').bind(id).first();
 const episodes=(id:string)=>E().DB.prepare('SELECT v.number,v.sha256,v.size,e.id FROM videolink_episodes v JOIN episodes e ON e.id=v.episode_id AND e.series_id=v.series_id AND e.number=v.number WHERE v.series_id=? ORDER BY v.number').bind(id).all();
 async function status(f:any){const rows=(await episodes(f.series_id)).results;return {seriesId:f.series_id,sourceId:f.source_id,variant:f.variant,expected:f.expected,genres:(f.genre||'').split(',').map((s:string)=>s.trim()).filter(Boolean),posterSha256:f.poster_sha256,complete:!!f.completed_at&&rows.length===f.expected,episodes:rows}}
-async function body(req:Request){if(Number(req.headers.get('content-length')||0)>1024*1024)fail('Yêu cầu quá lớn',413);const raw=await req.text();if(raw.length>1024*1024)fail('Yêu cầu quá lớn',413);try{return JSON.parse(raw)}catch{return fail('JSON không hợp lệ')}}
+const body=(req:Request)=>readObject(req,1024*1024);
 function image(bytes:Uint8Array,type:string){
  const ascii=(a:number,b:number)=>new TextDecoder().decode(bytes.slice(a,b));
  return bytes.length>=12&&(type==='image/png'&&[137,80,78,71,13,10,26,10].every((v,i)=>bytes[i]===v)||type==='image/jpeg'&&bytes[0]===255&&bytes[1]===216&&bytes[2]===255||type==='image/webp'&&ascii(0,4)==='RIFF'&&ascii(8,12)==='WEBP'||type==='image/avif'&&ascii(4,8)==='ftyp'&&/avif|avis/.test(ascii(8,32)));

@@ -1,9 +1,11 @@
+import {requestBodyModule} from './request-body-module.mjs';
+globalThis.__requestBody=requestBodyModule;
 import assert from 'node:assert/strict';
 import {DatabaseSync} from 'node:sqlite';import {readFileSync,readdirSync} from 'node:fs';import ts from 'typescript';
 const sqlite=new DatabaseSync(':memory:');for(const f of readdirSync('drizzle').filter(x=>x.endsWith('.sql')).sort())sqlite.exec(readFileSync('drizzle/'+f,'utf8'));
 const db={prepare(sql){let args=[];const q={bind(...a){args=a;return q},async first(){return sqlite.prepare(sql).get(...args)||null},async run(){return sqlite.prepare(sql).run(...args)}};return q},async batch(list){sqlite.exec('BEGIN');try{for(const q of list)await q.run();sqlite.exec('COMMIT')}catch(e){sqlite.exec('ROLLBACK');throw e}}};
 globalThis.__sepayEnv={DB:db,SEPAY_WEBHOOK_KEY:'test-only-key'};globalThis.__sepayUser={userId:'alice',username:'alice_01'};
-const source=readFileSync('server/sepay.ts','utf8').replace("import {env} from 'cloudflare:workers';",'const env=globalThis.__sepayEnv;').replace("import {currentUser} from './auth';",'const currentUser=async()=>globalThis.__sepayUser;');
+const source=readFileSync('server/sepay.ts','utf8').replace("import {readObject} from '../lib/request-body';","const {readObject}=globalThis.__requestBody;").replace("import {env} from 'cloudflare:workers';",'const env=globalThis.__sepayEnv;').replace("import {currentUser} from './auth';",'const currentUser=async()=>globalThis.__sepayUser;');
 const js=ts.transpileModule(source,{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.ES2022}}).outputText;const api=await import('data:text/javascript;base64,'+Buffer.from(js).toString('base64'));
 sqlite.prepare("INSERT INTO accounts(id,username,password_hash,created_at) VALUES('alice','alice_01','unused',0)").run();sqlite.prepare('INSERT INTO settings VALUES(?,?)').run('payment_recipient',JSON.stringify({bank:'TPBank',account:'01991855501',name:'TEST'}));sqlite.prepare("INSERT INTO settings VALUES('sepay_enabled','1')").run();
 let res=await api.sepayWallet(new Request('https://test.local/api/wallet/transfer?amount=10000'));let config=await res.json();assert(config.ready);assert(config.memo.endsWith(' alice_01'));assert.equal(new URL(config.qrUrl).searchParams.get('des'),config.memo);
@@ -23,3 +25,5 @@ assert.equal((await send({...body,id:6,transferAmount:-1})).status,400);assert.e
 assert.equal(sqlite.prepare("SELECT count(*) AS n FROM deposits WHERE status='approved'").get().n,2);
 globalThis.__sepayUser=null;assert.equal((await api.sepayWallet(new Request('https://test.local/api/wallet/transfer'))).status,401);
 console.log('PASS: authenticated webhook, recipient/direction checks, private personalized QR, actual amount, exact memo matching, duplicate id/reference, unmatched/ambiguous memo, wallet history.');
+
+const beforeMalformed=balance();for(const value of [null,[],{...body,gateway:123}])assert.equal((await send(value)).status,400);assert.equal(balance(),beforeMalformed);console.log('PASS: malformed authenticated webhook payloads never credit a wallet.');

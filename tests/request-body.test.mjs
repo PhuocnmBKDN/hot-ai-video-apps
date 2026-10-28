@@ -1,0 +1,18 @@
+import assert from 'node:assert/strict';
+import {requestBodyModule as api} from './request-body-module.mjs';
+const req=(body,headers={})=>new Request('https://test.local',{method:'POST',body,headers});
+assert.deepEqual(await api.readObject(req('{"ok":true}')),{ok:true});
+for(const value of ['null','[]','42','"hello"','{bad'])await assert.rejects(()=>api.readObject(req(value)),e=>e.status===400);
+await assert.rejects(()=>api.readObject(req('{"s":"áááá"}'),12),e=>e.status===413,'Enforce UTF-8 bytes, not JS character count');
+await assert.rejects(()=>api.readBytes(req('a',{'Content-Length':'999'}),8),e=>e.status===413);
+await assert.rejects(()=>api.readBytes(req('a',{'Content-Length':'-1'}),8),e=>e.status===400);
+await assert.rejects(()=>api.readBytes(req('a',{'Content-Length':'4'}),8),e=>e.status===400,'Reject truncated uploads');
+let cancelled=false;
+const stream=new ReadableStream({pull(c){c.enqueue(new Uint8Array(10))},cancel(){cancelled=true}});
+await assert.rejects(()=>api.readBytes(new Request('https://test.local',{method:'POST',body:stream,duplex:'half'}),8),e=>e.status===413);
+assert(cancelled,'Cancel oversized chunked streams immediately');
+const png=Uint8Array.from([137,80,78,71,13,10,26,10,0,0,0,13]);
+assert(api.validImage(png,'image/png'));assert(!api.validImage(png,'image/jpeg'));
+assert(!api.validImage(new Uint8Array(),'image/png'));assert(!api.validImage(new TextEncoder().encode('<html>not an image</html>'),'image/png'));
+assert(api.validImage(new TextEncoder().encode('RIFF0000WEBPpayload'),'image/webp'));
+console.log('PASS: bounded chunked/UTF-8 body reading, truncation, malformed objects and image signature validation.');

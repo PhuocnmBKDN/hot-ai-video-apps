@@ -1,3 +1,4 @@
+import {readBytes,readObject,validImage} from '../../../lib/request-body';
 import {issuePlayback,validatePlayback,playbackControl,foreignMedia} from '../../../server/playback';
 import {GENRES} from '../../../lib/genres';
 import { env } from 'cloudflare:workers';
@@ -11,7 +12,7 @@ const uid=()=>crypto.randomUUID();
 const admin=(u:any)=>!!u && u.role==='admin';
 const fullAccess=(u:any)=>admin(u)||u?.role==='vip';
 const text=(v:any,max=500)=>typeof v==='string'&&v.trim().length<=max?v.trim():fail('Nội dung không hợp lệ');
-async function readJson(req:Request){if(Number(req.headers.get('content-length')||0)>16384)fail('Yêu cầu quá lớn',413);const raw=await req.text();if(raw.length>16384)fail('Yêu cầu quá lớn',413);try{const value=JSON.parse(raw);if(!value||typeof value!=='object'||Array.isArray(value))fail('Dữ liệu không hợp lệ');return value}catch(e:any){if(e.status)throw e;fail('Dữ liệu JSON không hợp lệ')}}
+const readJson=readObject;
 async function setting(k:string){return (await E().DB.prepare('SELECT value FROM settings WHERE key=?').bind(k).first())?.value}
 async function writeSetting(k:string,v:string){await E().DB.prepare('INSERT INTO settings(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value').bind(k,v).run()}
 async function paymentRecipient(){try{const value=JSON.parse(await setting('payment_recipient')||'null');return value&&typeof value.bank==='string'&&typeof value.name==='string'&&/^[0-9]{6,30}$/.test(value.account)?value:null}catch{return null}}
@@ -65,7 +66,7 @@ async function route(req:Request){
    if(!await hasAccess(user.userId,ep.series_id))return json({error:'Tập này cần mở khóa'},403);
   }
   if(p[0]==='playback'){
-   if(req.method!=='POST')return json({error:'Cần mở phim từ ứng dụng'},405);if(Number(req.headers.get('content-length')||0)>2048)return json({error:'Yêu cầu quá lớn'},413);const b:any=await readJson(req);return issuePlayback(req,user,ep,String(b.device||''));
+   if(req.method!=='POST')return json({error:'Cần mở phim từ ứng dụng'},405);if(Number(req.headers.get('content-length')||0)>2048)return json({error:'Yêu cầu quá lớn'},413);const b:any=await readJson(req,2048);return issuePlayback(req,user,ep,String(b.device||''));
   }
   if(req.method!=='GET'&&req.method!=='HEAD')return json({error:'Phương thức không hỗ trợ'},405);const blocked=await validatePlayback(req,user,ep.id);if(blocked)return blocked;
   const meta=await bucket.head(ep.object_key);if(!meta)return json({error:'Video chưa sẵn sàng'},404);
@@ -117,9 +118,9 @@ async function route(req:Request){
   }
   if(p[1]==='receipt'&&req.method==='POST'){
    const id=text(new URL(req.url).searchParams.get('id'),64);const d=await db.prepare('SELECT * FROM deposits WHERE id=? AND user_id=?').bind(id,user.userId).first();if(!d)fail('Không tìm thấy yêu cầu',404);if(d.status!=='awaiting_receipt')fail('Biên lai này đã gửi');
-   const type=req.headers.get('content-type')||'';if(!['image/png','image/jpeg','image/webp'].includes(type))fail('Dùng ảnh PNG/JPEG/WebP');const bytes=await req.arrayBuffer();if(!bytes.byteLength||bytes.byteLength>5*1024*1024)fail('Biên lai tối đa 5 MB');
+   const type=req.headers.get('content-type')||'';if(!['image/png','image/jpeg','image/webp'].includes(type))fail('Dùng ảnh PNG/JPEG/WebP');const bytes=await readBytes(req,5*1024*1024);if(!validImage(bytes,type))fail('Biên lai cần là ảnh PNG/JPEG/WebP hợp lệ');
    const hash=Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',bytes))).map(x=>x.toString(16).padStart(2,'0')).join('');if(await db.prepare('SELECT id FROM deposits WHERE receipt_hash=?').bind(hash).first())fail('Ảnh biên lai đã được sử dụng');
-   const key='receipts/'+uid();await bucket.put(key,bytes,{httpMetadata:{contentType:type}});try{await db.prepare("UPDATE deposits SET receipt_key=?,receipt_hash=?,status='pending_review' WHERE id=? AND status='awaiting_receipt'").bind(key,hash,id).run()}catch(e){await bucket.delete(key);throw e}return json({ok:true,status:'pending_review'});
+   const key='receipts/'+uid();await bucket.put(key,bytes,{httpMetadata:{contentType:type}});try{const saved=await db.prepare("UPDATE deposits SET receipt_key=?,receipt_hash=?,status='pending_review' WHERE id=? AND status='awaiting_receipt' RETURNING id").bind(key,hash,id).first();if(!saved)fail('Biên lai này đã gửi. Vui lòng tải lại lịch sử.',409)}catch(e){await bucket.delete(key);throw e}return json({ok:true,status:'pending_review'});
   }
  }
  if(p[0]==='orders'){
@@ -131,20 +132,20 @@ async function route(req:Request){
    if(!await setting('qr')||!await paymentRecipient())return json({error:'Thanh toán chưa mở. Vui lòng quay lại sau.'},503);
    const old=await db.prepare("SELECT id FROM orders WHERE user_id=? AND series_id=? AND status='pending'").bind(user.userId,film.id).first();if(old)return json({id:old.id});
    const count=await db.prepare('SELECT count(*) AS n FROM orders WHERE user_id=? AND created_at>?').bind(user.userId,Date.now()-86400000).first();if(count.n>=10)return json({error:'Đã đạt giới hạn tạo đơn hôm nay'},429);
-   const id='LT'+uid().replaceAll('-','').slice(0,14).toUpperCase();await db.prepare("INSERT INTO orders(id,user_id,email,series_id,amount,status,created_at) VALUES(?,?,?,?,10000,'pending',?)").bind(id,user.userId,user.email,film.id,Date.now()).run();return json({id});
+   const id='LT'+uid().replaceAll('-','').slice(0,14).toUpperCase();await db.prepare("INSERT INTO orders(id,user_id,email,series_id,amount,status,created_at) VALUES(?,?,?,?,?,'pending',?)").bind(id,user.userId,user.email,film.id,await price(film.id),Date.now()).run();return json({id});
   }
  }
  if(p[0]==='admin'){
   if(!admin(user))return json({error:'Chỉ chủ trang được quản trị'},403);
   if(p[1]==='user-activity'&&req.method==='GET'){
    const q=new URL(req.url).searchParams;const a=await db.prepare('SELECT id FROM accounts WHERE username=?').bind(text(q.get('username'),32)).first();if(!a)fail('Tài khoản này không tồn tại',404);
-   const kind=q.get('kind');const section=q.get('section')||'ledger';const requestedSize=Number(q.get('size')),requestedPage=Number(q.get('page'));const size=Number.isSafeInteger(requestedSize)&&requestedSize>0?Math.min(100,requestedSize):10;const page=Number.isSafeInteger(requestedPage)&&requestedPage>0?Math.min(1000000,requestedPage):1;let from='',where='',order='';
+   const kind=q.get('kind');if(kind&&!['deposit','purchase'].includes(kind))fail('Bộ lọc không hợp lệ');const section=q.get('section')||'ledger';const requestedSize=Number(q.get('size')),requestedPage=Number(q.get('page'));const size=Number.isSafeInteger(requestedSize)&&requestedSize>0?Math.min(100,requestedSize):10;const page=Number.isSafeInteger(requestedPage)&&requestedPage>0?Math.min(1000000,requestedPage):1;let from='',where='',order='';
    if(section==='ledger'){from="wallet_ledger l LEFT JOIN orders o ON l.kind='purchase' AND o.id=l.source_id AND o.user_id=l.user_id LEFT JOIN series s ON s.id=o.series_id";where="l.user_id=?"+(kind==='deposit'?" AND l.amount>0":kind==='purchase'?" AND l.amount<0":"");order='l.created_at DESC,l.id DESC'}
    else if(section==='purchased'){from='orders o JOIN series s ON s.id=o.series_id';where="o.user_id=? AND o.status='paid'";order='o.created_at DESC,o.id DESC'}
    else if(section==='watched'){from='watch_history w JOIN series s ON s.id=w.series_id';where='w.user_id=?';order='w.updated_at DESC,w.series_id'}else fail('Mục không hợp lệ');
    const fields=section==='ledger'?'l.id,l.amount,l.kind,l.created_at,s.title':section==='purchased'?'o.id,o.amount,o.created_at,s.title':'w.series_id AS id,w.episode_number,w.position,w.completed,w.updated_at AS created_at,s.title';
    const total=(await db.prepare('SELECT count(*) AS n FROM '+from+' WHERE '+where).bind(a.id).first()).n;
-   return json({balance:await balance(a.id),total,rows:(await db.prepare('SELECT '+fields+' FROM '+from+' WHERE '+where+' ORDER BY '+order+' LIMIT ? OFFSET ?').bind(a.id,size,(page-1)*size).all()).results});
+   const pages=Math.max(1,Math.ceil(total/size)),current=Math.min(page,pages);return json({balance:await balance(a.id),total,page:current,pages,rows:(await db.prepare('SELECT '+fields+' FROM '+from+' WHERE '+where+' ORDER BY '+order+' LIMIT ? OFFSET ?').bind(a.id,size,(current-1)*size).all()).results});
   }
   if(p[1]==='genres'&&req.method==='POST'){
    const b:any=await readJson(req);const list:string[]=await genreList();const name=text(b.name||'',60),previous=text(b.previous||'',60);const same=(a:string,c:string)=>a.toLocaleLowerCase('vi')===c.toLocaleLowerCase('vi');
@@ -165,15 +166,15 @@ async function route(req:Request){
   if(req.method!=='GET'&&req.method!=='POST')return json({error:'Phương thức không hỗ trợ'},405);
   if(p[1]==='upload'||p[1]==='qr'||p[1]==='poster'||p[1]==='thumbnail'){
    const size=Number(req.headers.get('content-length'));const type=req.headers.get('content-type')||'';
-   if(p[1]==='thumbnail'){const id=text(new URL(req.url).searchParams.get('seriesId'),64);if(!await db.prepare('SELECT id FROM series WHERE id=? AND deleted_at IS NULL').bind(id).first())fail('Không tìm thấy phim');if(type!=='image/jpeg')fail('Ảnh cần định dạng JPEG');if(Number(req.headers.get('content-length')||0)>1024*1024)fail('Ảnh tối đa 1 MB');const bytes=await req.arrayBuffer();if(bytes.byteLength>1024*1024||new Uint8Array(bytes)[0]!==255||new Uint8Array(bytes)[1]!==216)fail('Ảnh không hợp lệ');await bucket.put('previews/'+id+'.jpg',bytes,{httpMetadata:{contentType:'image/jpeg'}});return json({ok:true})}
-   if(p[1]==='poster'){const id=text(new URL(req.url).searchParams.get('seriesId'),64);if(!await db.prepare('SELECT id FROM series WHERE id=? AND deleted_at IS NULL').bind(id).first())fail('Không tìm thấy phim');if(!['image/png','image/jpeg','image/webp'].includes(type))fail('Poster cần PNG/JPEG/WebP');const bytes=await req.arrayBuffer();if(bytes.byteLength>5*1024*1024)fail('Poster tối đa 5 MB');await bucket.put('posters/'+id,bytes,{httpMetadata:{contentType:type}});await writeSetting('poster:'+id,'yes');return json({ok:true})}
+   if(p[1]==='thumbnail'){const id=text(new URL(req.url).searchParams.get('seriesId'),64);if(!await db.prepare('SELECT id FROM series WHERE id=? AND deleted_at IS NULL').bind(id).first())fail('Không tìm thấy phim');if(type!=='image/jpeg')fail('Ảnh cần định dạng JPEG');if(Number(req.headers.get('content-length')||0)>1024*1024)fail('Ảnh tối đa 1 MB');const bytes=await readBytes(req,1024*1024);if(!validImage(bytes,type))fail('Ảnh không hợp lệ');await bucket.put('previews/'+id+'.jpg',bytes,{httpMetadata:{contentType:'image/jpeg'}});return json({ok:true})}
+   if(p[1]==='poster'){const id=text(new URL(req.url).searchParams.get('seriesId'),64);if(!await db.prepare('SELECT id FROM series WHERE id=? AND deleted_at IS NULL').bind(id).first())fail('Không tìm thấy phim');if(!['image/png','image/jpeg','image/webp'].includes(type))fail('Poster cần PNG/JPEG/WebP');const bytes=await readBytes(req,5*1024*1024);if(!validImage(bytes,type))fail('Poster cần là ảnh PNG/JPEG/WebP hợp lệ');await bucket.put('posters/'+id,bytes,{httpMetadata:{contentType:type}});await writeSetting('poster:'+id,'yes');return json({ok:true})}
    if(p[1]==='qr'){
-    if(!['image/png','image/jpeg','image/webp'].includes(type))fail('QR cần là PNG, JPEG hoặc WebP');const data=await req.arrayBuffer();if(data.byteLength>2*1024*1024)fail('QR tối đa 2 MB');await bucket.put('payment/qr',data,{httpMetadata:{contentType:type}});await writeSetting('qr','payment/qr');return json({ok:true});
+    if(!['image/png','image/jpeg','image/webp'].includes(type))fail('QR cần là PNG, JPEG hoặc WebP');const data=await readBytes(req,2*1024*1024);if(!validImage(data,type))fail('QR cần là ảnh PNG/JPEG/WebP hợp lệ');await bucket.put('payment/qr',data,{httpMetadata:{contentType:type}});await writeSetting('qr','payment/qr');return json({ok:true});
    }
    if(type!=='video/mp4'||!size||size>90*1024*1024)fail('Video MP4, tối đa 90 MB mỗi tập');
    const u=new URL(req.url);const seriesId=text(u.searchParams.get('seriesId'),64);const n=Number(u.searchParams.get('number'));const f=await db.prepare('SELECT * FROM series WHERE id=? AND deleted_at IS NULL').bind(seriesId).first();if(!f||!Number.isInteger(n)||n<1||n>1000000)fail('Số tập phải là số nguyên từ 1 trở lên');
    if(await db.prepare('SELECT id FROM episodes WHERE series_id=? AND number=?').bind(seriesId,n).first())fail('Tập này đã được tải lên');
-   const id=uid();const key='episodes/'+id+'.mp4';await bucket.put(key,req.body,{httpMetadata:{contentType:'video/mp4'},size});try{await db.prepare('INSERT INTO episodes(id,series_id,number,title,object_key) VALUES(?,?,?,?,?)').bind(id,seriesId,n,text(u.searchParams.get('title'),100)||'Tập '+n,key).run()}catch(err){await bucket.delete(key);throw err}return json({ok:true});
+   const id=uid();const key='episodes/'+id+'.mp4';try{const stored=await bucket.put(key,req.body,{httpMetadata:{contentType:'video/mp4'},size});if(stored?.size!==size)fail('Video nhận chưa đủ. Vui lòng thử tải lại.',409);await db.prepare('INSERT INTO episodes(id,series_id,number,title,object_key) VALUES(?,?,?,?,?)').bind(id,seriesId,n,text(u.searchParams.get('title'),100)||'Tập '+n,key).run()}catch(err){await bucket.delete(key);throw err}return json({ok:true});
   }
   const b=await readJson(req) as any;
   if(p[1]==='user-role'){

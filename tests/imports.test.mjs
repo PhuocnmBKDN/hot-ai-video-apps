@@ -1,3 +1,5 @@
+import {requestBodyModule} from './request-body-module.mjs';
+globalThis.__requestBody=requestBodyModule;
 import assert from 'node:assert/strict';
 import {readFileSync,readdirSync} from 'node:fs';
 import {DatabaseSync} from 'node:sqlite';
@@ -13,7 +15,7 @@ globalThis.__importDefaults=(await import('data:text/javascript;base64,'+Buffer.
 const genresSource=readFileSync('server/import-genres.ts','utf8').replace("import {GENRES} from '../lib/genres';","const GENRES=globalThis.__importDefaults;");
 const genresJs=ts.transpileModule(genresSource,{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.ES2022}}).outputText;
 globalThis.__genreModule=await import('data:text/javascript;base64,'+Buffer.from(genresJs).toString('base64'));
-const src=readFileSync('server/imports.ts','utf8').replace("import {env} from 'cloudflare:workers';","const env=globalThis.__importEnv;").replace("import {currentUser} from './auth';","const currentUser=async()=>globalThis.__importUser;").replace("import {importGenreNames,attachImportGenres} from './import-genres';","const {importGenreNames,attachImportGenres}=globalThis.__genreModule;");
+const src=readFileSync('server/imports.ts','utf8').replace("import {readObject} from '../lib/request-body';","const {readObject}=globalThis.__requestBody;").replace("import {env} from 'cloudflare:workers';","const env=globalThis.__importEnv;").replace("import {currentUser} from './auth';","const currentUser=async()=>globalThis.__importUser;").replace("import {importGenreNames,attachImportGenres} from './import-genres';","const {importGenreNames,attachImportGenres}=globalThis.__genreModule;");
 const js=ts.transpileModule(src,{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.ES2022}}).outputText;
 const {importRoute}=await import('data:text/javascript;base64,'+Buffer.from(js).toString('base64'));
 const origin='https://hotai.test',base='/api/admin/imports',id='7675079518784574484';
@@ -85,3 +87,5 @@ assert.equal((await call('',metadata)).status,409,'Do not resurrect a deleted fi
 assert.equal((await call('/'+id)).status,404);
 globalThis.__importUser=null;assert.equal((await call('/'+id)).status,403);
 console.log('PASS: VideoLink admin/CSRF, bilingual metadata, draft-only creation, deduplication, variant conflicts, R2 checksum verification, episode order, interrupted resume, missing/deleted episodes, full-set acknowledgement, deletion and guest isolation; Vietnamese genre matching/creation, Unicode deduplication, manual labels and concurrent registry updates.');
+
+globalThis.__importUser={userId:'owner',role:'admin'};for(const value of [null,[],42])assert.equal((await call('',value)).status,400);console.log('PASS: malformed import metadata returns a validation error without creating a film.');

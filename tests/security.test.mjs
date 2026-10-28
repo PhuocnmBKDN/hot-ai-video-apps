@@ -1,3 +1,5 @@
+import {requestBodyModule} from './request-body-module.mjs';
+globalThis.__requestBody=requestBodyModule;
 import assert from 'node:assert/strict';
 import {readFileSync,readdirSync} from 'node:fs';
 import {DatabaseSync} from 'node:sqlite';
@@ -5,8 +7,8 @@ import ts from 'typescript';
 const sqlite=new DatabaseSync(':memory:');for(const file of readdirSync('drizzle').filter(f=>f.endsWith('.sql')).sort())sqlite.exec(readFileSync('drizzle/'+file,'utf8'));
 const objects=new Map();
 let preparedCalls=0;const db={prepare(sql){preparedCalls++;let args=[];const q={bind(...a){args=a;return q},async first(){return sqlite.prepare(sql).get(...args)||null},async all(){return {results:sqlite.prepare(sql).all(...args)}},async run(){return sqlite.prepare(sql).run(...args)}};return q},async batch(list){sqlite.exec('BEGIN');try{const out=[];for(const q of list)out.push(await q.run());sqlite.exec('COMMIT');return out}catch(e){sqlite.exec('ROLLBACK');throw e}}};
-globalThis.__testEnv={DB:db,ADMIN_EMAIL:'owner@test.local',BUCKET:{async head(k){return objects.has(k)?{size:objects.get(k).length}:null},async get(k,options){const body=objects.get(k);if(!body)return null;const r=options?.range;return {body:r?body.subarray(r.offset,r.offset+r.length):body,size:body.length,httpMetadata:{contentType:'video/mp4'}}},async put(k,v){objects.set(k,Buffer.from(await new Response(v).arrayBuffer()))},async delete(k){objects.delete(k)}}};globalThis.__testUser=null;
-let source=readFileSync('app/api/[...path]/route.ts','utf8').replace("import {issuePlayback,validatePlayback,playbackControl,foreignMedia} from '../../../server/playback';","const validatePlayback=async()=>null;const foreignMedia=()=>false;const issuePlayback=()=>new Response('{}');const playbackControl=()=>new Response('{}');").replace("import {GENRES} from '../../../lib/genres';","const GENRES=['Tình cảm','Test'];").replace("import { env } from 'cloudflare:workers';","const env=globalThis.__testEnv;").replace("import {media} from '../../../server/media';","const media=()=>env.BUCKET;").replace("import { currentUser } from '../../../server/auth';","const currentUser=async()=>globalThis.__testUser;");
+globalThis.__testEnv={DB:db,ADMIN_EMAIL:'owner@test.local',BUCKET:{async head(k){return objects.has(k)?{size:objects.get(k).length}:null},async get(k,options){const body=objects.get(k);if(!body)return null;const r=options?.range;return {body:r?body.subarray(r.offset,r.offset+r.length):body,size:body.length,httpMetadata:{contentType:'video/mp4'}}},async put(k,v){objects.set(k,Buffer.from(await new Response(v).arrayBuffer()));return {size:objects.get(k).length}},async delete(k){objects.delete(k)}}};globalThis.__testUser=null;
+let source=readFileSync('app/api/[...path]/route.ts','utf8').replace("import {readBytes,readObject,validImage} from '../../../lib/request-body';","const {readBytes,readObject,validImage}=globalThis.__requestBody;").replace("import {issuePlayback,validatePlayback,playbackControl,foreignMedia} from '../../../server/playback';","const validatePlayback=async()=>null;const foreignMedia=()=>false;const issuePlayback=()=>new Response('{}');const playbackControl=()=>new Response('{}');").replace("import {GENRES} from '../../../lib/genres';","const GENRES=['Tình cảm','Test'];").replace("import { env } from 'cloudflare:workers';","const env=globalThis.__testEnv;").replace("import {media} from '../../../server/media';","const media=()=>env.BUCKET;").replace("import { currentUser } from '../../../server/auth';","const currentUser=async()=>globalThis.__testUser;");
 const js=ts.transpileModule(source,{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.ES2022}}).outputText;
 const api=await import('data:text/javascript;base64,'+Buffer.from(js).toString('base64'));
 const origin='https://test.local';async function call(path,body,headers={}){const r=new Request(origin+'/api/'+path,{method:body?'POST':'GET',headers:{...(body?{'Content-Type':'application/json','Origin':origin}:{}),...headers},...(body?{body:JSON.stringify(body)}:{})});const res=await api.GET(r);return {status:res.status,body:res.headers.get('content-type')?.includes('json')?await res.json():await res.text()}}
@@ -90,8 +92,9 @@ const deposit=(await call('wallet/deposit',{amount:20000})).body;
 assert(deposit.id.startsWith('NAP'));
 assert.equal((await call('wallet/deposit',{amount:-20000})).status,400);
 assert.equal((await call('wallet/deposit',{amount:10000.5})).status,400);
+const pngFixture=text=>Buffer.concat([Buffer.from([137,80,78,71,13,10,26,10,0,0,0,13]),Buffer.from(text)]);
 const upload=async(id,bytes)=>api.POST(new Request(origin+'/api/wallet/receipt?id='+id,{method:'POST',headers:{Origin:origin,'Content-Type':'image/png'},body:bytes}));
-assert.equal((await upload(deposit.id,Buffer.from('receipt-fixture'))).status,200);
+assert.equal((await upload(deposit.id,pngFixture('receipt-fixture'))).status,200);
 assert.equal((await call('wallet')).body.balance,0,'Upload alone never credits money');
 assert.equal((await call('admin/deposit-confirm',{id:deposit.id,reference:'TRANSFER20'})).status,403);
 assert.equal((await call('admin/receipt/'+deposit.id)).status,403);
@@ -104,8 +107,8 @@ assert.equal((await call('admin/receipt/'+deposit.id)).status,200);
 globalThis.__testUser=carol;
 assert.equal((await call('wallet')).body.balance,20000,'Approved deposit credited once');
 const duplicate=(await call('wallet/deposit',{amount:20000})).body;
-assert.equal((await upload(duplicate.id,Buffer.from('receipt-fixture'))).status,400,'Exact receipt cannot be reused');
-assert.equal((await upload(duplicate.id,Buffer.from('different-receipt'))).status,200);
+assert.equal((await upload(duplicate.id,pngFixture('receipt-fixture'))).status,400,'Exact receipt cannot be reused');
+assert.equal((await upload(duplicate.id,pngFixture('different-receipt'))).status,200);
 globalThis.__testUser=owner;
 assert.equal((await call('admin/deposit-confirm',{id:duplicate.id,reference:'TRANSFER20'})).status,400,'Bank reference cannot be credited twice');
 assert.equal((await call('admin/deposit-reject',{id:duplicate.id})).status,200);
@@ -200,3 +203,26 @@ const malformed=await api.GET(new Request(origin+'/api/admin/series',{method:'PO
 for(let i=0;i<120;i++)sqlite.prepare('INSERT INTO series(id,title,description,genre,total,paid_from,published,created_at) VALUES(?,?,?,?,0,2,1,?)').run('perf'+i,'Performance fixture '+i,'fixture','Test',i);
 preparedCalls=0;const bigCatalog=await call('catalog');assert.equal(bigCatalog.status,200);assert(bigCatalog.body.films.length>=120);assert(preparedCalls<=8,'Catalog query count must stay constant for 120 films');
 console.log('PASS: private paginated wallet history, summary polling, malformed JSON and bounded catalog queries at 120 films.');
+
+// Regression coverage for the second audit, using isolated fixtures only.
+globalThis.__testUser=owner;
+for(let i=0;i<2;i++)sqlite.prepare('INSERT INTO wallet_ledger VALUES(?,?,?,?,?,?)').run('page-fixture'+i,'alice',1000,'deposit','page-fixture'+i,i);
+const clamped=await call('admin/user-activity?username=alice&section=ledger&page=999999&size=1');
+assert.equal(clamped.status,200);assert.equal(clamped.body.page,clamped.body.pages);assert(clamped.body.rows.length>0);
+assert.equal((await call('admin/user-activity?username=alice&kind=invalid')).status,400);
+const posterReq=(bytes,type='image/png',extra={})=>api.POST(new Request(origin+'/api/admin/poster?seriesId='+preview.id,{method:'POST',headers:{Origin:origin,'Content-Type':type,...extra},body:bytes}));
+assert.equal((await posterReq(pngFixture('poster'))).status,200);const posterBefore=objects.get('posters/'+preview.id);
+for(const bytes of [Buffer.alloc(0),Buffer.from('<html>invalid image</html>')])assert.equal((await posterReq(bytes)).status,400);
+assert.equal((await posterReq(pngFixture('wrong type'),'image/webp')).status,400);assert.deepEqual(objects.get('posters/'+preview.id),posterBefore,'Invalid poster never overwrites current image');
+assert.equal((await posterReq(pngFixture('oversized declaration'),'image/png',{'Content-Length':String(6*1024*1024)})).status,413);
+const tooLarge=JSON.stringify({name:'á'.repeat(10000)});assert(tooLarge.length<16384);assert.equal((await api.POST(new Request(origin+'/api/admin/genres',{method:'POST',headers:{Origin:origin},body:tooLarge}))).status,413);
+sqlite.prepare("INSERT INTO settings(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value").run('price:'+preview.id,'19000');
+globalThis.__testUser={userId:'legacy-price',email:'legacy-price@test.local'};
+const legacy=await call('orders',{seriesId:preview.id});assert.equal(legacy.status,200);assert.equal(sqlite.prepare('SELECT amount FROM orders WHERE id=?').get(legacy.body.id).amount,19000);
+console.log('PASS: clamped admin history pages, malformed filters, invalid/oversized poster preservation, UTF-8 byte limits and configured legacy order prices.');
+
+globalThis.__testUser=owner;
+const videoCount=sqlite.prepare('SELECT count(*) AS n FROM episodes').get().n,objectCount=objects.size;
+const truncatedUpload=await api.POST(new Request(origin+'/api/admin/upload?'+new URLSearchParams({seriesId:preview.id,number:'99',title:'Fixture'}),{method:'POST',headers:{Origin:origin,'Content-Type':'video/mp4','Content-Length':'100'},body:Buffer.from('truncated fixture')}));
+assert.equal(truncatedUpload.status,409);assert.equal(sqlite.prepare('SELECT count(*) AS n FROM episodes').get().n,videoCount);assert.equal(objects.size,objectCount,'Incomplete video object is cleaned up');
+console.log('PASS: incomplete video uploads never create playable episodes or leave new objects.');

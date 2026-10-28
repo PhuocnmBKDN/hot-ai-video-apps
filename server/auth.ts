@@ -1,3 +1,4 @@
+import {readObject} from '../lib/request-body';
 import {env} from 'cloudflare:workers';
 const E=()=>env as any;
 const encoder=new TextEncoder();
@@ -22,9 +23,7 @@ export async function auth(req:Request){
  const action=new URL(req.url).pathname.split('/').pop(),db=E().DB;
  if(action==='logout'){const raw=(req.headers.get('cookie')||'').split(';').map(x=>x.trim()).find(x=>x.startsWith(cookieName+'='))?.slice(cookieName.length+1);if(raw){const hash=await digest(raw);await db.batch([db.prepare('DELETE FROM playback_leases WHERE session_hash=?').bind(hash),db.prepare('DELETE FROM sessions WHERE token_hash=?').bind(hash)])}return Response.json({ok:true},{headers:{'Set-Cookie':sessionCookie('',0),'Cache-Control':'no-store'}})}
  if(!['login','register'].includes(action||''))return reject('Không tìm thấy',404);
- if(Number(req.headers.get('content-length')||0)>2048)return reject('Yêu cầu quá lớn',413);
- const body=await req.text();if(body.length>2048)return reject('Yêu cầu quá lớn',413);let b:any;try{b=JSON.parse(body)}catch{return reject('Dữ liệu không hợp lệ')}
- if(!b||typeof b!=='object'||Array.isArray(b))return reject('Dữ liệu không hợp lệ');
+ let b:any;try{b=await readObject(req,2048)}catch(e:any){return reject(e.message,e.status||400)}
  const username=typeof b.username==='string'?b.username.trim().toLowerCase():'',password=b.passwordProof,clientSalt=b.clientSalt;
  if(!/^[a-z0-9_]{3,32}$/.test(username)||typeof password!=='string'||!/^[a-f0-9]{64}$/.test(password)||typeof clientSalt!=='string'||!/^[a-f0-9]{64}$/.test(clientSalt)||b.scheme!=='client600k-server100k')return reject('Dữ liệu đăng nhập không hợp lệ. Hãy tải lại trang rồi thử lại.');
  let account=await db.prepare('SELECT * FROM accounts WHERE username=?').bind(username).first();
