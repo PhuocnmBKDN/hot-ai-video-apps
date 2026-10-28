@@ -4,8 +4,9 @@ const origin=process.env.TEST_ORIGIN;
 if(!/^http:\/\/(127\.0\.0\.1|localhost):\d+$/.test(origin||''))throw Error('Only a disposable local environment is allowed');
 const fixtureDir=resolve(process.env.TEST_FIXTURE_DIR||'../work/audit-round2');mkdirSync(fixtureDir,{recursive:true});
 const actor='qa_media_'+crypto.randomUUID().replaceAll('-','').slice(0,12),token=Buffer.from(crypto.getRandomValues(new Uint8Array(32))).toString('hex');
+const viewer=actor+'_viewer',viewerToken=Buffer.from(crypto.getRandomValues(new Uint8Array(32))).toString('hex'),viewerHash=Buffer.from(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(viewerToken))).toString('hex');
 const hash=Buffer.from(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(token))).toString('hex');
-const seed=resolve(fixtureDir,'runtime-seed.sql');writeFileSync(seed,`INSERT INTO accounts(id,username,password_hash,role,created_at) VALUES('${actor}','${actor}','local-fixture-unused','admin',${Date.now()});INSERT INTO sessions(token_hash,user_id,expires_at) VALUES('${hash}','${actor}',${Date.now()+3600000});`);
+const seed=resolve(fixtureDir,'runtime-seed.sql');writeFileSync(seed,`INSERT INTO accounts(id,username,password_hash,role,created_at) VALUES('${actor}','${actor}','local-fixture-unused','admin',${Date.now()});INSERT INTO sessions(token_hash,user_id,expires_at) VALUES('${hash}','${actor}',${Date.now()+3600000});INSERT INTO accounts(id,username,password_hash,role,created_at) VALUES('${viewer}','${viewer}','local-fixture-unused','viewer',${Date.now()});INSERT INTO sessions(token_hash,user_id,expires_at) VALUES('${viewerHash}','${viewer}',${Date.now()+3600000});INSERT INTO wallet_ledger(id,user_id,amount,kind,source_id,created_at) VALUES('${viewer}','${viewer}',10000,'deposit','${viewer}',${Date.now()});`);
 execFileSync(process.execPath,['node_modules/wrangler/bin/wrangler.js','d1','execute','hot-ai-drama','--local','--config','wrangler.jsonc','--file',seed],{stdio:'pipe',timeout:45000});
 const cookie='__Host-hotai_session='+token;
 const call=(path,body,headers={})=>fetch(origin+'/api/'+path,{method:body===undefined?'GET':'POST',headers:{Origin:origin,Cookie:cookie,...(body instanceof Uint8Array?{}:{'Content-Type':'application/json'}),...headers},...(body===undefined?{}:{body:body instanceof Uint8Array?body:JSON.stringify(body)})});
@@ -21,6 +22,7 @@ for(const number of [1,2]){const r=await call('admin/upload?'+new URLSearchParam
 assert.equal((await call('admin/publish',{id:film.id,publish:true})).status,200);
 const catalog=await (await call('catalog')).json(),published=catalog.films.find(f=>f.id===film.id);assert.equal(published.total,2);
 const [first,second]=published.episodes;
+const viewerCookie='__Host-hotai_session='+viewerToken;const wallet=async()=>await (await call('wallet?summary=1',undefined,{Cookie:viewerCookie})).json();assert.equal((await wallet()).balance,10000);assert.equal((await call('wallet/buy',{seriesId:film.id,expectedPrice:10000},{Cookie:viewerCookie})).status,200);assert.equal((await wallet()).balance,0);assert((await (await call('wallet/buy',{seriesId:film.id,expectedPrice:10000},{Cookie:viewerCookie})).json()).alreadyUnlocked);assert.equal((await wallet()).balance,0);
 let r=await fetch(origin+'/api/playback/'+first.id,{method:'POST',headers:{Origin:origin,'Content-Type':'application/json'},body:JSON.stringify({device:crypto.randomUUID()})});assert.equal(r.status,200);const guestCookie=r.headers.get('set-cookie').split(';')[0],guest=await r.json();
 const range=await fetch(origin+guest.src,{headers:{Cookie:guestCookie,Range:'bytes=0-1'}});assert.equal(range.status,206);assert.equal((await range.arrayBuffer()).byteLength,2);
 assert.equal((await fetch(origin+'/api/playback/'+second.id,{method:'POST',headers:{Origin:origin,Cookie:guestCookie,'Content-Type':'application/json'},body:JSON.stringify({device:crypto.randomUUID()})})).status,401);
@@ -29,4 +31,4 @@ assert.equal((await call('watch-history',{episodeId:second.id,position:3.2})).st
 assert.equal((await (await call('admin/user-activity?username='+actor+'&section=watched&page=99999')).json()).page,1);
 assert.equal((await call('auth/logout',{})).status,200);
 assert.equal((await fetch(origin+privileged.src,{headers:{Cookie:cookie}})).status,401);
-console.log('PASS: local workerd/R2 poster preservation, two real video uploads, publishing, guest byte-range playback, paywall, watch history and logout revocation.');
+console.log('PASS: local workerd/R2 poster preservation, two real video uploads, publishing, derived wallet debit/idempotency, guest byte-range playback, paywall, watch history and logout revocation.');

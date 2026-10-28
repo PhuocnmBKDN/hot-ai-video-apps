@@ -1,0 +1,23 @@
+import assert from 'node:assert/strict';import {DatabaseSync} from 'node:sqlite';import {readFileSync,readdirSync} from 'node:fs';import ts from 'typescript';
+const db=new DatabaseSync(':memory:');const files=readdirSync('drizzle').filter(f=>f.endsWith('.sql')).sort();for(const f of files.filter(f=>f<'0016_cost_optimizations.sql'))db.exec(readFileSync('drizzle/'+f,'utf8'));
+const add=(id,user,amount)=>db.prepare('INSERT INTO wallet_ledger VALUES(?,?,?,?,?,?)').run(id,user,amount,amount>0?'deposit':'purchase',id,1);
+add('a1','a',20000);add('a2','a',-10000);add('b1','b',30000);
+db.exec(readFileSync('drizzle/0016_cost_optimizations.sql','utf8'));
+const balance=u=>db.prepare('SELECT balance FROM wallet_balances WHERE user_id=?').get(u)?.balance||0;
+assert.equal(balance('a'),10000);assert.equal(balance('b'),30000);
+add('a3','a',5000);assert.equal(balance('a'),15000);
+db.prepare("INSERT OR IGNORE INTO wallet_ledger VALUES('ignored','a',5000,'deposit','a3',1)").run();assert.equal(balance('a'),15000);
+db.exec('BEGIN');add('rollback','a',-5000);db.exec('ROLLBACK');assert.equal(balance('a'),15000);
+db.prepare("UPDATE wallet_ledger SET amount=7000,user_id='b' WHERE id='a3'").run();assert.equal(balance('a'),10000);assert.equal(balance('b'),37000);
+db.prepare("DELETE FROM wallet_ledger WHERE id='a3'").run();assert.equal(balance('b'),30000);
+const plan=db.prepare('EXPLAIN QUERY PLAN SELECT balance FROM wallet_balances WHERE user_id=?').all('a');assert(plan.some(p=>/SEARCH.*INDEX/.test(p.detail)));
+const rev=()=>Number(db.prepare("SELECT value FROM settings WHERE key='catalog_revision'").get().value);
+let before=rev();db.prepare("INSERT INTO series(id,title,description,genre,total,paid_from,published,created_at) VALUES('f','Film','Description','Test',0,2,0,1)").run();assert(rev()>before);
+before=rev();db.prepare("INSERT INTO settings VALUES('poster:f','yes')").run();assert(rev()>before);before=rev();db.prepare("UPDATE settings SET value='yes' WHERE key='poster:f'").run();assert(rev()>before,'Replacing a poster changes the cache revision even when its yes flag stays unchanged');
+const load=async file=>{const js=ts.transpileModule(readFileSync(file,'utf8'),{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.ES2022}}).outputText;return import('data:text/javascript;base64,'+Buffer.from(js).toString('base64'))};
+const {walletPollDelay}=await load('lib/wallet-poll.ts');assert.equal(walletPollDelay(false,0),null);assert.equal(walletPollDelay(true,600000),null);
+let elapsed=0,polls=0;while(true){const delay=walletPollDelay(true,elapsed);if(delay===null)break;elapsed+=delay;polls++}assert.equal(polls,38);
+const {readApi}=await load('lib/api-read.ts');const original=globalThis.fetch;let calls=0,resolve;
+globalThis.fetch=()=>{calls++;return new Promise(r=>{resolve=r})};
+try{const a=readApi('/test'),b=readApi('/test');assert.equal(calls,1);resolve(Response.json({balance:1}));assert.deepEqual(await a,await b);const c=readApi('/test');assert.equal(calls,2,'Explicit next read must be fresh');resolve(Response.json({balance:2}));assert.equal((await c).balance,2)}finally{globalThis.fetch=original}
+console.log('PASS: derived wallet backfill/rollback/idempotency, indexed lookup, poster revision, fresh deduplicated reads and 38 vs 120 polls over ten minutes (idle: zero).');

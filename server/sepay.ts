@@ -8,8 +8,7 @@ export async function sepayWallet(req:Request){
  const user=await currentUser(req);if(!user)return json({error:'Cần đăng nhập'},401);if(req.method!=='GET')return json({error:'Phương thức không hỗ trợ'},405);
  const recipient=await config();const enabled=await E().DB.prepare("SELECT value FROM settings WHERE key='sepay_enabled'").first();
  if(!E().SEPAY_WEBHOOK_KEY||enabled?.value!=='1'||recipient?.bank?.toLowerCase()!=='tpbank')return json({ready:false});
- const db=E().DB;await db.prepare('INSERT OR IGNORE INTO payment_codes(user_id,code) VALUES(?,?)').bind(user.userId,'HOTAI'+crypto.randomUUID().replaceAll('-','').slice(0,16).toUpperCase()).run();
- const row=await db.prepare('SELECT code FROM payment_codes WHERE user_id=?').bind(user.userId).first();
+ const db=E().DB;let row=await db.prepare('SELECT code FROM payment_codes WHERE user_id=?').bind(user.userId).first();if(!row){await db.prepare('INSERT OR IGNORE INTO payment_codes(user_id,code) VALUES(?,?)').bind(user.userId,'HOTAI'+crypto.randomUUID().replaceAll('-','').slice(0,16).toUpperCase()).run();row=await db.prepare('SELECT code FROM payment_codes WHERE user_id=?').bind(user.userId).first()}
  const memo=row.code+' '+user.username;
  const amount=Number(new URL(req.url).searchParams.get('amount')||10000);if(!Number.isSafeInteger(amount)||amount<=1000||amount>100000000)return json({error:'Số tiền phải lớn hơn 1,000đ và không quá 100,000,000đ'},400);
  const qr=new URL('https://vietqr.app/img');for(const [key,value] of Object.entries({acc:recipient.account,bank:'TPBank',amount:String(amount),des:memo,template:'compact',showinfo:'true',holder:recipient.name}))qr.searchParams.set(key,value);
