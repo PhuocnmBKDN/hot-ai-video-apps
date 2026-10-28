@@ -267,5 +267,7 @@ globalThis.__testUser=owner;assert.equal((await call('admin/poster-source',{seri
 assert.equal((await call('poster/'+sourceId)).body,'first-frame-fixture');assert(objects.has(uploadedKey),'Switching to a frame keeps the uploaded image');
 objects.delete(frameKey);assert.equal((await call('poster/'+sourceId)).body,'uploaded-poster-fixture','Missing frame falls back without a broken image');
 assert.equal((await call('admin/films?summary=1')).body.films.find(f=>f.id==='perf0').posterFromEpisodeOne,true,'Other films keep their default selection');
-objects.set(frameKey,Buffer.from('first-frame-fixture'));await call('admin/publish',{id:sourceId,publish:false});globalThis.__testUser=null;assert.equal((await call('poster/'+sourceId)).status,404,'Source preference does not expose drafts');
-console.log('PASS: per-film poster source, default frame priority, persisted toggles, cache invalidation, upload preservation, missing-frame fallback, admin authorization, CSRF and draft protection.');
+const jpegFrame=Buffer.from([255,216,255,224,0,16,74,70,73,70,0,1]);
+globalThis.__testUser=owner;const thumbnailUpload=await api.POST(new Request(origin+'/api/admin/thumbnail?seriesId='+sourceId,{method:'POST',headers:{Origin:origin,'Content-Type':'image/jpeg'},body:jpegFrame}));assert.equal(thumbnailUpload.status,200);assert.equal((await call('admin/films?summary=1')).body.films.find(f=>f.id===sourceId).preview,true,'Successful frame capture is persisted for the admin UI');assert.deepEqual(objects.get(frameKey),jpegFrame);
+await call('admin/publish',{id:sourceId,publish:false});globalThis.__testUser=null;assert.equal((await call('poster/'+sourceId)).status,404,'Source preference does not expose drafts');
+console.log('PASS: per-film poster source, real frame state, default frame priority, persisted toggles, cache invalidation, upload preservation, missing-frame fallback, admin authorization, CSRF and draft protection.');
