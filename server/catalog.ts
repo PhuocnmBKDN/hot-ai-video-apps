@@ -11,7 +11,7 @@ export async function catalogBase(db:any,drafts:boolean){
  const key=revision+':'+drafts;const existing=inflight.get(key);if(existing)return existing;
  const load=(async()=>{
   const [filmRows,episodeRows,settingsRows,buyerRows]=await Promise.all([
-   db.prepare('SELECT id,title,description,genre,paid_from,created_at,updated_at,published,first_published_at FROM series WHERE deleted_at IS NULL AND (published=1 OR ?=1) ORDER BY created_at DESC').bind(drafts?1:0).all(),
+   db.prepare('SELECT id,title,description,genre,paid_from,created_at,updated_at,published,first_published_at,view_count FROM series WHERE deleted_at IS NULL AND (published=1 OR ?=1) ORDER BY created_at DESC').bind(drafts?1:0).all(),
    db.prepare('SELECT e.id,e.series_id,e.number FROM episodes e JOIN series s ON s.id=e.series_id WHERE s.deleted_at IS NULL AND (s.published=1 OR ?=1) ORDER BY e.series_id,e.number').bind(drafts?1:0).all(),
    db.prepare("SELECT key,value FROM settings WHERE key LIKE 'price:%' OR key LIKE 'poster:%' OR key IN ('payment_recipient','qr','genres')").all(),
    db.prepare("SELECT series_id,count(*) AS buyers,sum(CASE WHEN created_at>=? THEN 1 ELSE 0 END) AS hotScore FROM orders WHERE status='paid' GROUP BY series_id").bind(Date.now()-7*86400000).all()

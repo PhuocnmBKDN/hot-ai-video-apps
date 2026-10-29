@@ -1,0 +1,1 @@
+ALTER TABLE series ADD COLUMN view_count INTEGER NOT NULL DEFAULT 0 CHECK(view_count >= 0);

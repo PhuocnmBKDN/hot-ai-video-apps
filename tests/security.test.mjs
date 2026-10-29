@@ -22,6 +22,7 @@ assert.equal((await call('admin/publish',{id:film.id,publish:true})).status,400,
 sqlite.prepare('INSERT INTO episodes VALUES(?,?,?,?,?)').run('early',film.id,1,'First','early');
 assert.equal((await call('admin/publish',{id:film.id,publish:true})).status,200,'Film can publish while later episodes are still pending');
 assert.equal((await call('catalog')).body.films[0].episodes.length,1);
+globalThis.__testUser=null;assert.equal((await call('series-view',{seriesId:film.id})).status,200);assert.equal(sqlite.prepare('SELECT view_count FROM series WHERE id=?').get(film.id).view_count,1,'Opening a published film increments its view count');globalThis.__testUser=owner;
 sqlite.prepare('DELETE FROM episodes WHERE id=?').run('early');
 for(let n=1;n<=12;n++){sqlite.prepare('INSERT INTO episodes VALUES(?,?,?,?,?)').run('e'+n,film.id,n,'Ep '+n,'v'+n);objects.set('v'+n,Buffer.from('test-video'))}
 assert.equal((await call('admin/publish',{id:film.id,publish:true})).status,200);
