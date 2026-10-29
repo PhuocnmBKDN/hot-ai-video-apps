@@ -55,8 +55,12 @@ async function route(req:Request){
   // Never mutate/cache account entitlements or identities in the shared base.
   return json({...base,films:base.films.map((f:any)=>({...f,freeAccess:free.has(f.id),adminAccess:admin(user),unlocked:fullAccess(user)||unlocked.has(f.id)})),account:{user:user?{email:user.email,role:user.role||'viewer'}:null,admin:admin(user)}});
  }
+ if(p[0]==='rankings'&&req.method==='GET'){
+  const period=new URL(req.url).searchParams.get('period')||'day',days=({day:1,week:7,month:30,year:365} as Record<string,number>)[period];if(!days)fail('Khoảng thời gian không hợp lệ');const since=new Date(Date.now()+7*3600000-(days-1)*86400000).toISOString().slice(0,10);
+  return json({rows:(await db.prepare('SELECT v.series_id,sum(v.views) AS views FROM film_daily_views v JOIN series s ON s.id=v.series_id WHERE v.day>=? AND s.published=1 AND s.deleted_at IS NULL GROUP BY v.series_id').bind(since).all()).results});
+ }
  if(p[0]==='series-view'&&req.method==='POST'){
-  const b:any=await readJson(req,1024),id=text(b.seriesId,64);const updated=await db.prepare('UPDATE series SET view_count=view_count+1 WHERE id=? AND published=1 AND deleted_at IS NULL RETURNING view_count').bind(id).first();if(!updated)fail('Không tìm thấy phim',404);return json({ok:true,views:updated.view_count});
+  const b:any=await readJson(req,1024),id=text(b.seriesId,64);const updated=await db.prepare('UPDATE series SET view_count=view_count+1 WHERE id=? AND published=1 AND deleted_at IS NULL RETURNING view_count').bind(id).first();if(!updated)fail('Không tìm thấy phim',404);await db.prepare('INSERT INTO film_daily_views(series_id,day,views) VALUES(?,?,1) ON CONFLICT(series_id,day) DO UPDATE SET views=views+1').bind(id,new Date(Date.now()+7*3600000).toISOString().slice(0,10)).run();return json({ok:true,views:updated.view_count});
  }
  if(p[0]==='playback-control'&&req.method==='POST')return playbackControl(req,user,p[1]==='release');
  if(p[0]==='video'||p[0]==='playback'){
