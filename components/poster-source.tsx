@@ -26,6 +26,6 @@ export default function PosterSource({film,episodes,busy,setBusy,action,onComple
   catch(error:any){setStatus(error.message||'Không lấy được khung hình tập 1.');await onComplete()}
   finally{setBusy(false)}
  }
- useEffect(()=>{if(film.posterFromEpisodeOne===false||film.preview||!episodeOne||started.current)return;started.current=true;void enableFrame(false)},[film.id,film.posterFromEpisodeOne,film.preview,episodeOne?.id]);
+ useEffect(()=>{if(busy||film.posterFromEpisodeOne===false||film.preview||!episodeOne||started.current)return;started.current=true;void enableFrame(false)},[busy,film.id,film.posterFromEpisodeOne,film.preview,episodeOne?.id]);
  return <div className="poster-source-control"><label className="poster-source-option"><input type="checkbox" checked={film.posterFromEpisodeOne!==false} disabled={busy} onChange={e=>{if(e.target.checked)void enableFrame(true);else void action('poster-source',{seriesId:film.id,fromEpisodeOne:false})}}/><span>Lấy khung hình đầu của tập 1 làm poster</span></label><p className="muted">Khi tích chọn, hệ thống tạo ảnh mới trực tiếp từ video tập 1. Bỏ tích để dùng poster đã tải lên; ảnh tải lên vẫn được giữ.</p>{film.posterFromEpisodeOne!==false&&!film.preview&&episodeOne&&<p className="muted">Chưa có ảnh khung hình tập 1; hệ thống sẽ tự tạo.</p>}{film.posterFromEpisodeOne!==false&&!episodeOne&&<p className="muted">Cần tải tập 1 trước khi dùng lựa chọn này.</p>}<p role="status">{status}</p></div>;
 }
