@@ -81,6 +81,7 @@
 
 .poster-source-option{display:flex;align-items:flex-start;gap:10px;min-height:44px;cursor:pointer;line-height:1.5}.poster-source-option input[type="checkbox"]{width:22px;height:22px;flex:0 0 22px;margin:2px 0 0;accent-color:var(--accent,#ff2068)}.poster-source-option span{min-width:0;overflow-wrap:anywhere}
 .poster-source-control>p[role="status"]{min-height:1.5em;color:#ffd07b;font-size:13px;overflow-wrap:anywhere}
+.wallet-topup-cta{display:flex;width:100%;min-height:46px;align-items:center;justify-content:center;margin-top:8px;border-color:#ff4c82;background:#ff28691c;color:#ffd5e2;font-size:13px;font-weight:750}.wallet-topup-cta:hover{background:#ff286936;border-color:#ff7ba5}.wallet-topup-cta:focus-visible{outline:2px solid #ff8faf;outline-offset:3px}
 .card-title{font-size:17px;font-weight:750;line-height:1.35;min-height:46px;color:#fff;letter-spacing:-.15px}
 @media(max-width:800px){.card-title{font-size:14px;font-weight:750;line-height:1.35;min-height:38px}}
 @media(max-width:350px){.card-title{font-size:13px;min-height:36px}}
@@ -167,6 +168,11 @@
   .free-episodes,.coming-label{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   .catalog-main{padding:0 9px calc(90px + env(safe-area-inset-bottom));scroll-padding-bottom:90px}
   .catalog-bottom{padding-bottom:24px}
+  .catalog-pagination{display:flex;flex-wrap:nowrap;justify-content:space-between;gap:5px;width:100%;white-space:nowrap}
+  .catalog-pagination label{gap:4px;min-width:0}
+  .catalog-pagination select{width:54px;min-width:54px;padding:5px 3px;font-size:16px}
+  .catalog-pagination>span{font-size:10px;flex-shrink:0}
+  .catalog-pagination .mini{min-height:36px;padding:5px 7px;font-size:10px;flex-shrink:0}
   .app-nav{height:calc(64px + env(safe-area-inset-bottom));padding:7px 5px calc(7px + env(safe-area-inset-bottom))}
   .app-nav button{gap:3px;font-size:8px}
   .app-nav button svg{width:22px;height:22px}
