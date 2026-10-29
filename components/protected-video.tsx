@@ -4,11 +4,11 @@ const deviceId=crypto.randomUUID();
 // Temporarily disabled; keep the overlay available for re-enabling later.
 const WATERMARK_ENABLED=false;
 export default function ProtectedVideo({episodeId,username,videoRef,startAt=0,onCheckpoint,...props}:{episodeId:string;username?:string;startAt?:number;videoRef:RefObject<HTMLVideoElement|null>;onCheckpoint?:(position:number,completed:boolean)=>void}&VideoHTMLAttributes<HTMLVideoElement>){
- const [source,setSource]=useState<any>(null),[error,setError]=useState(''),[attempt,setAttempt]=useState(0);const resume=useRef(startAt),liveUntil=useRef(0),renew=useRef(false);const propsRef=useRef(props),checkpoint=useRef(onCheckpoint);propsRef.current=props;checkpoint.current=onCheckpoint;
+ const [source,setSource]=useState<any>(null),[error,setError]=useState(''),[attempt,setAttempt]=useState(0);const resume=useRef(startAt),activeEpisode=useRef(episodeId),liveUntil=useRef(0),renew=useRef(false);const propsRef=useRef(props),checkpoint=useRef(onCheckpoint);propsRef.current=props;checkpoint.current=onCheckpoint;
  function restart(){const video=videoRef.current;if(video&&Number.isFinite(video.currentTime))resume.current=video.currentTime;video?.pause();setAttempt(n=>n+1)}
- useEffect(()=>{let alive=true,token='',released=false;const video=videoRef.current;if(!video)return;const abort=new AbortController();setSource(null);setError('');renew.current=false;
+ useEffect(()=>{let alive=true,token='',released=false;const video=videoRef.current;if(!video)return;if(activeEpisode.current!==episodeId){activeEpisode.current=episodeId;resume.current=startAt}const saveCheckpoint=checkpoint.current;const abort=new AbortController();setSource(null);setError('');renew.current=false;
  const release=()=>{if(token&&!released){released=true;fetch('/api/playback-control/release',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({token}),keepalive:true}).catch(()=>{})}};
- const save=()=>{if(token&&video.readyState>0&&Number.isFinite(video.currentTime))checkpoint.current?.(video.currentTime,video.ended)};
+ const save=()=>{if(token&&video.readyState>0&&Number.isFinite(video.currentTime))saveCheckpoint?.(video.currentTime,video.ended)};
  const pagehide=()=>{save();release()};const pageshow=(event:PageTransitionEvent)=>{if(event.persisted&&alive){resume.current=video.currentTime;setAttempt(n=>n+1)}};
  window.addEventListener('pagehide',pagehide);window.addEventListener('pageshow',pageshow);
  fetch('/api/playback/'+episodeId,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({device:deviceId}),signal:abort.signal}).then(async r=>{const b:any=await r.json();if(!r.ok)throw Error(b.error||'Không thể mở phiên phát');token=b.token;if(!alive){release();return}liveUntil.current=Date.now()+240000;setSource(b);video.src=b.src;
