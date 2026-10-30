@@ -1,3 +1,4 @@
+import {assertLightPoster} from '../lib/poster-policy';
 import {readObject} from '../lib/request-body';
 import {env} from 'cloudflare:workers';
 import {currentUser} from './auth';
@@ -50,13 +51,14 @@ async function route(req:Request){
  }
  if(req.method!=='POST')fail('Phương thức không được hỗ trợ',405);
  if(path[1]==='poster'&&path.length===2){
-  const hash=hex(req.headers.get('x-content-sha256')),type=req.headers.get('content-type')||'',length=Number(req.headers.get('content-length'));
+  const hash=hex(req.headers.get('x-content-sha256')),sourceHash=hex(req.headers.get('x-source-sha256')||hash),type=req.headers.get('content-type')||'',length=Number(req.headers.get('content-length'));
   if(!Number.isSafeInteger(length)||length<12||length>8*1024*1024)fail('Poster tối đa 8 MB',413);
-  if(f.poster_sha256&&f.poster_sha256!==hash)fail('Poster đã nhập khác với file này',409);
+  if(f.poster_sha256&&f.poster_sha256!==sourceHash)fail('Poster đã nhập khác với file này',409);
   const bytes=new Uint8Array(await req.arrayBuffer());if(bytes.length!==length||!image(bytes,type))fail('Poster cần PNG/JPEG/WebP/AVIF hợp lệ');
+  assertLightPoster(bytes);
   await bucket.put('posters/'+f.series_id,bytes,{httpMetadata:{contentType:type},sha256:hash});
-  await db.batch([db.prepare('UPDATE videolink_imports SET poster_sha256=? WHERE source_id=?').bind(hash,f.source_id),db.prepare('INSERT INTO settings(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value').bind('poster:'+f.series_id,'yes')]);
-  return json({ok:true,sha256:hash});
+  await db.batch([db.prepare('UPDATE videolink_imports SET poster_sha256=? WHERE source_id=?').bind(sourceHash,f.source_id),db.prepare('INSERT INTO settings(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value').bind('poster:'+f.series_id,'yes')]);
+  return json({ok:true,sha256:sourceHash,storedSha256:hash});
  }
  if(path[1]==='episodes'&&path.length===3){
   const n=Number(path[2]),size=Number(req.headers.get('content-length')),hash=hex(req.headers.get('x-content-sha256'));
