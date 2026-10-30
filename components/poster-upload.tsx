@@ -19,8 +19,11 @@ async function optimizePoster(image:File){
  const canvas=document.createElement('canvas');canvas.width=Math.max(1,Math.round(decoded.width*scale));canvas.height=Math.max(1,Math.round(decoded.height*scale));
  const context=canvas.getContext('2d');if(!context){decoded.close();throw Error('Không thể tối ưu ảnh trên thiết bị này.')}
  decoded.draw(context,canvas.width,canvas.height);decoded.close();
- const blob=await new Promise<Blob|null>(resolve=>canvas.toBlob(resolve,'image/webp',.82));if(!blob)throw Error('Không thể tối ưu ảnh poster.');
- return new File([blob],image.name.replace(/\.[^.]+$/,'.webp'),{type:'image/webp'});
+ for(const quality of [.82,.72,.62]){
+  const blob=await new Promise<Blob|null>(resolve=>canvas.toBlob(resolve,'image/webp',quality));if(!blob)throw Error('Không thể tối ưu ảnh poster.');
+  if(blob.size<=512*1024){const type=blob.type,extension=type==='image/webp'?'.webp':type==='image/jpeg'?'.jpg':'.png';return new File([blob],image.name.replace(/\.[^.]+$/,extension),{type})}
+ }
+ throw Error('Poster vẫn quá 512 KB sau khi nén. Vui lòng chọn ảnh khác.');
 }
 export default function PosterUpload({filmId,fromEpisodeOne,busy,setBusy,onComplete}:{filmId:string;fromEpisodeOne:boolean;busy:boolean;setBusy:(value:boolean)=>void;onComplete:()=>Promise<void>}){
  const [file,setFile]=useState<File|null>(null),[preview,setPreview]=useState(''),[message,setMessage]=useState('');
