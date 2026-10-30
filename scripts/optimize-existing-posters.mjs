@@ -5,7 +5,7 @@ import sharp from 'sharp';
 
 const origin=process.env.APP_ORIGIN||'https://hotai.bro.io.vn';
 const bucket=process.env.R2_BUCKET||'hot-ai-drama-media';
-const backupRoot=process.env.POSTER_BACKUP_DIR||path.resolve('..','work','poster-optimization','originals');
+const backupRoot=process.env.POSTER_BACKUP_DIR||path.resolve('..','work','poster-optimization','originals',String(Date.now()));
 const outputRoot=path.resolve('..','work','poster-optimization','optimized');
 const wrangler=path.resolve('node_modules','wrangler','bin','wrangler.js');
 await mkdir(backupRoot,{recursive:true});await mkdir(outputRoot,{recursive:true});
@@ -26,6 +26,7 @@ for(const film of films){
   source=poster;key='posters/'+film.id;contentType='image/webp';extension='webp';
  }
  const input=Buffer.from(await source.arrayBuffer());before+=input.length;
+ if(input.length<300*1024){after+=input.length;console.log('KEEP',film.id,Math.round(input.length/1024)+' KB');continue}
  const safe=film.id.replace(/[^a-zA-Z0-9._-]/g,'_');
  const originalType=(source.headers.get('content-type')||'image/jpeg').split('/')[1].replace('jpeg','jpg');
  await writeFile(path.join(backupRoot,safe+'.'+originalType),input);
