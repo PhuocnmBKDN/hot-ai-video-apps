@@ -1,4 +1,4 @@
-import {affiliateConfig,validateAffiliate,affiliateActor,affiliateGate} from '../../../server/affiliate';
+import {affiliateConfig,validateAffiliate,affiliateActor,affiliateGate,affiliatePreview} from '../../../server/affiliate';
 import {assertLightPoster} from '../../../lib/poster-policy';
 import {mediaMetadata,forgetMediaMetadata} from '../../../server/media-metadata';
 import {catalogBase} from '../../../server/catalog';
@@ -40,6 +40,13 @@ async function hasAccess(userId:string,seriesId:string){return !!await E().DB.pr
 async function route(req:Request){
  const p=new URL(req.url).pathname.split('/').slice(2); const db=E().DB; const bucket=media(); const user=await currentUser(req);
  if(req.method!=='GET'&&!(req.method==='HEAD'&&p[0]==='video')&&req.headers.get('origin')!==new URL(req.url).origin) return json({error:'Yêu cầu khác nguồn bị từ chối'},403);
+ if(p[0]==='affiliate'&&p[1]==='preview'&&req.method==='GET'){
+  const id=new URL(req.url).searchParams.get('ruleId')||'',config=await affiliateConfig();const rule=config.rules.find((r:any)=>id===r.id||id.startsWith(r.id+'-'));if(!rule||(!config.enabled&&!admin(user)))fail('Không có liên kết',404);
+  const preview=rule.title&&rule.image?{}:await affiliatePreview(rule.url);return json({...preview,title:rule.title||preview.title||'',image:rule.image||preview.image||'',domain:new URL(rule.url).hostname.includes('shope')?'Shopee':new URL(rule.url).hostname});
+ }
+ if(p[0]==='admin'&&p[1]==='affiliate-preview'&&req.method==='POST'){
+  if(!admin(user))fail('Chỉ admin được cấu hình Affiliate',403);const b:any=await readJson(req,4096);return json(await affiliatePreview(text(b.url,2048)));
+ }
  if(p[0]==='admin'&&p[1]==='affiliate'){
   if(!admin(user))fail('Chỉ admin được cấu hình Affiliate',403);
   if(req.method==='GET')return json(await affiliateConfig());
