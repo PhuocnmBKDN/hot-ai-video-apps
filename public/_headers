@@ -42,3 +42,11 @@
 
 /app-recovery.js
   Cache-Control: no-cache
+/about
+  Cache-Control: public, max-age=0, must-revalidate, no-transform
+/contact
+  Cache-Control: public, max-age=0, must-revalidate, no-transform
+/privacy
+  Cache-Control: public, max-age=0, must-revalidate, no-transform
+/sitemap.xml
+  Cache-Control: public, max-age=3600

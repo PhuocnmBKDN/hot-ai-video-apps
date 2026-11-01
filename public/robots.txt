@@ -1,0 +1,9 @@
+User-agent: *
+Disallow: /admin
+Disallow: /api/admin
+Disallow: /api/auth/
+Disallow: /api/wallet
+Disallow: /login
+Allow: /
+
+Sitemap: https://hotai.bro.io.vn/sitemap.xml

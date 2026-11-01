@@ -1,0 +1,3 @@
+import {informationPages,informationUpdated} from '../lib/site-information';
+import SiteFooter from './site-footer';
+export default function InformationPage(){const page=informationPages.find(p=>p.path===location.pathname.replace(/\/+$/,''));if(!page)return null;return <main className="legal"><a href="/">← Về thư viện phim</a><h1>{page.title}</h1><p>{page.description}</p><p className="muted">Cập nhật: {informationUpdated}</p>{page.sections.map(s=><section key={s.title}><h2>{s.title}</h2>{s.paragraphs.map(p=><p key={p}>{p}</p>)}{s.links?.map(l=><p key={l.href}><a href={l.href} rel={l.href.startsWith('https:')?'noopener noreferrer':undefined}>{l.label}</a></p>)}</section>)}<SiteFooter/></main>}
