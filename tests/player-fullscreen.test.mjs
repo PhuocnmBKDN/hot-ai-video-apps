@@ -1,0 +1,16 @@
+import assert from 'node:assert/strict';
+import {readFileSync} from 'node:fs';
+import ts from 'typescript';
+const source=ts.transpileModule(readFileSync('lib/player-fullscreen.ts','utf8'),{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.ES2022}}).outputText;
+const {revealPlayerOverlay}=await import('data:text/javascript;base64,'+Buffer.from(source).toString('base64'));
+let exits=0;globalThis.document={fullscreenElement:null};
+await revealPlayerOverlay({});assert.equal(exits,0);
+await revealPlayerOverlay({webkitDisplayingFullscreen:true,webkitExitFullscreen(){exits++}});assert.equal(exits,1,'iPhone native fullscreen exits so HTML affiliate card becomes visible');
+await revealPlayerOverlay({webkitPresentationMode:'fullscreen',webkitSetPresentationMode(mode){assert.equal(mode,'inline');exits++}});assert.equal(exits,2);
+globalThis.document={fullscreenElement:{},async exitFullscreen(){exits++}};
+await revealPlayerOverlay({});assert.equal(exits,3,'Standard fullscreen exits for gate UI');
+globalThis.document={webkitFullscreenElement:{},webkitExitFullscreen(){exits++}};
+await revealPlayerOverlay(null);assert.equal(exits,4);
+globalThis.document={fullscreenElement:{},async exitFullscreen(){throw Error('already exited')}};
+await revealPlayerOverlay({webkitDisplayingFullscreen:true,webkitExitFullscreen(){throw Error('already exited')},webkitSetPresentationMode(mode){assert.equal(mode,'inline')}});
+console.log('PASS: native iPhone, presentation-mode, standard and legacy fullscreen reveal blocked playback UI; inline playback stays unchanged.');
