@@ -20,6 +20,9 @@ assert.deepEqual(await globalThis.__affiliate.affiliatePreview('https://s.shopee
 await globalThis.__affiliate.affiliatePreview('https://127.0.0.1/private');assert.equal(previewFetches,2,'Preview cannot fetch arbitrary hosts');
 globalThis.fetch=originalFetch;
 source=source.replace("import {affiliateConfig,validateAffiliate,affiliateActor,affiliateGate,affiliatePreview} from '../../../server/affiliate';","const {affiliateConfig,validateAffiliate,affiliateActor,affiliateGate,affiliatePreview}=globalThis.__affiliate;");
+const zipSource=ts.transpileModule(readFileSync('server/download-zip.ts','utf8'),{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.ES2022}}).outputText;
+globalThis.__downloadZip=await import('data:text/javascript;base64,'+Buffer.from(zipSource).toString('base64'));
+source=source.replace("import {safeDownloadName,downloadDisposition} from '../../../server/download-zip';","const {safeDownloadName,downloadDisposition}=globalThis.__downloadZip;");
 const js=ts.transpileModule(source,{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.ES2022}}).outputText;
 const api=await import('data:text/javascript;base64,'+Buffer.from(js).toString('base64'));
 const origin='https://test.local';async function call(path,body,headers={}){const r=new Request(origin+'/api/'+path,{method:body?'POST':'GET',headers:{...(body?{'Content-Type':'application/json','Origin':origin}:{}),...headers},...(body?{body:JSON.stringify(body)}:{})});const res=await api.GET(r);return {status:res.status,body:res.headers.get('content-type')?.includes('json')?await res.json():await res.text()}}
@@ -66,7 +69,11 @@ const freeCatalog=await call('catalog');assert.equal(freeCatalog.body.features.w
 globalThis.__testUser=owner;await call('admin/affiliate',{enabled:true,rules:[{episodeText:'5',url:'https://s.shopee.vn/feature-test'}]});
 globalThis.__testUser=alice;assert.equal((await call('playback/e12',{device:'test'})).status,428,'Affiliate still blocks when paid locking is off');
 globalThis.__testUser=owner;await call('admin/affiliate',{enabled:false,rules:[]});await call('admin/payment-features',{paidLock:true,wallet:true});
-globalThis.__testUser=null;assert.equal((await call('video/e3')).status,200);assert.equal((await call('video/e4')).status,401);
+assert.equal((await call('admin/download?seriesId='+film.id+'&episodes=1')).status,200);
+const downloadResponse=await api.GET(new Request(origin+'/api/admin/download?seriesId='+film.id+'&episodes=1'));assert.equal(downloadResponse.headers.get('content-type'),'video/mp4');assert(downloadResponse.headers.get('content-disposition').includes('attachment;'));assert(downloadResponse.headers.get('content-disposition').includes('Tap%20001.mp4'));
+assert.equal((await call('admin/download?seriesId='+film.id+'&episodes=999')).status,404);
+globalThis.__testUser=alice;assert.equal((await call('admin/download?seriesId='+film.id+'&episodes=1')).status,403);
+globalThis.__testUser=null;assert.equal((await call('admin/download?seriesId='+film.id+'&all=1')).status,403);assert.equal((await call('video/e3')).status,200);assert.equal((await call('video/e4')).status,401);
 globalThis.__testUser=alice;assert.equal((await call('video/e4')).status,403);assert.equal((await call('orders',{seriesId:film.id})).status,503,'No QR means no checkout');
 sqlite.prepare('INSERT INTO settings VALUES(?,?)').run('qr','payment/qr');assert.equal((await call('orders',{seriesId:film.id})).status,503,'QR without recipient must not enable checkout');sqlite.prepare('INSERT INTO settings VALUES(?,?)').run('payment_recipient',JSON.stringify({bank:'Test bank',account:'0123456789',name:'TEST RECIPIENT'}));const order=await call('orders',{seriesId:film.id});assert.equal(order.status,200);assert.equal((await call('orders',{seriesId:film.id})).body.id,order.body.id,'Pending order reused');
 assert.equal((await call('admin/confirm',{id:order.body.id,reference:'bank1'})).status,403,'Customer cannot self-confirm');

@@ -1,0 +1,12 @@
+import assert from 'node:assert/strict';
+import {readFileSync,writeFileSync,mkdirSync} from 'node:fs';
+import ts from 'typescript';
+const js=ts.transpileModule(readFileSync('server/download-zip.ts','utf8'),{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.ES2022}}).outputText;
+const {zipDownload,safeDownloadName,downloadDisposition}=await import('data:text/javascript;base64,'+Buffer.from(js).toString('base64'));
+let reads=0;const bucket={async get(key){reads++;return {body:new ReadableStream({start(c){c.enqueue(new TextEncoder().encode(key==='a'?'1234':'hello'));c.enqueue(new TextEncoder().encode(key==='a'?'56789':' world'));c.close()}})}}};
+const bytes=Buffer.from(await new Response(zipDownload(bucket,[{key:'a',name:'Tập 001.mp4'},{key:'b',name:'Tập 002.mp4'}])).arrayBuffer());
+assert.equal(reads,2);const central=bytes.indexOf(Buffer.from([0x50,0x4b,0x01,0x02]));assert(central>0);assert.equal(bytes.readUInt32LE(central+16),0xcbf43926,'Known CRC32 vector');assert.equal(bytes.readUInt32LE(bytes.length-22),0x06054b50);
+assert.equal(safeDownloadName('../bad:name\r\n.mp4').includes('/'),false);assert(!downloadDisposition('Phim "A"\r\n.mp4').includes('\r'));
+const cancel=zipDownload(bucket,[{key:'a',name:'1.mp4'},{key:'b',name:'2.mp4'}]).getReader();await cancel.read();await cancel.cancel();assert.equal(reads,3,'Cancellation never fetches subsequent episodes');
+mkdirSync('../work/download-qa',{recursive:true});writeFileSync('../work/download-qa/test.zip',bytes);
+console.log('PASS: streamed ZIP64, UTF-8 filenames, known CRC32, multiple chunks, download filenames and cancellation.');

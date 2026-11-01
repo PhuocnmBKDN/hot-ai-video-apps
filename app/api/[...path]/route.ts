@@ -1,4 +1,5 @@
 import {affiliateConfig,validateAffiliate,affiliateActor,affiliateGate,affiliatePreview} from '../../../server/affiliate';
+import {safeDownloadName,downloadDisposition} from '../../../server/download-zip';
 import {assertLightPoster} from '../../../lib/poster-policy';
 import {mediaMetadata,forgetMediaMetadata} from '../../../server/media-metadata';
 import {catalogBase} from '../../../server/catalog';
@@ -172,6 +173,14 @@ async function route(req:Request){
  }
  if(p[0]==='admin'){
   if(!admin(user))return json({error:'Chỉ chủ trang được quản trị'},403);
+  if(p[1]==='download'&&req.method==='GET'){
+   const q=new URL(req.url).searchParams,id=text(q.get('seriesId'),64);const film=await db.prepare('SELECT id,title FROM series WHERE id=? AND deleted_at IS NULL').bind(id).first();if(!film)fail('Không tìm thấy phim',404);
+   const raw=q.get('episodes')||'';if(raw.length>10000)fail('Danh sách tập quá dài');const all=q.get('all')==='1';const numbers=all?[]:[...new Set(raw.split(',').map(Number))];if(!all&&(!numbers.length||numbers.some(n=>!Number.isSafeInteger(n)||n<1||n>1000000)))fail('Chọn ít nhất một tập hợp lệ');
+   const rows=(await db.prepare('SELECT id,number,object_key FROM episodes WHERE series_id=? ORDER BY number').bind(id).all()).results.filter((e:any)=>all||numbers.includes(e.number));if(!rows.length)fail('Phim chưa có tập để tải',404);if(!all&&rows.length!==numbers.length)fail('Một số tập đã bị xóa. Hãy tải lại danh sách.',409);
+   const title=safeDownloadName(film.title);const filename=(n:number)=>title+' - Tap '+String(n).padStart(3,'0')+'.mp4';const headers=new Headers({'Cache-Control':'private, no-store, no-transform','X-Content-Type-Options':'nosniff','Cross-Origin-Resource-Policy':'same-origin'});
+   if(rows.length===1){const obj=await bucket.get(rows[0].object_key);if(!obj)fail('Video chưa sẵn sàng',404);headers.set('Content-Type','video/mp4');headers.set('Content-Length',String(obj.size));headers.set('Content-Disposition',downloadDisposition(filename(rows[0].number)));return new Response(obj.body,{headers})}
+   fail('Hãy dùng nút tải ZIP trong quản trị để tải nhiều tập',400);
+  }
   if(p[1]==='user-activity'&&req.method==='GET'){
    const q=new URL(req.url).searchParams;const a=await db.prepare('SELECT id FROM accounts WHERE username=?').bind(text(q.get('username'),32)).first();if(!a)fail('Tài khoản này không tồn tại',404);
    const kind=q.get('kind');if(kind&&!['deposit','purchase'].includes(kind))fail('Bộ lọc không hợp lệ');const section=q.get('section')||'ledger';const requestedSize=Number(q.get('size')),requestedPage=Number(q.get('page'));const size=Number.isSafeInteger(requestedSize)&&requestedSize>0?Math.min(100,requestedSize):10;const page=Number.isSafeInteger(requestedPage)&&requestedPage>0?Math.min(1000000,requestedPage):1;let from='',where='',order='';
