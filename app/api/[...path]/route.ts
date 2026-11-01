@@ -1,3 +1,4 @@
+import {affiliateConfig,validateAffiliate,affiliateActor,affiliateGate} from '../../../server/affiliate';
 import {assertLightPoster} from '../../../lib/poster-policy';
 import {mediaMetadata,forgetMediaMetadata} from '../../../server/media-metadata';
 import {catalogBase} from '../../../server/catalog';
@@ -39,6 +40,18 @@ async function hasAccess(userId:string,seriesId:string){return !!await E().DB.pr
 async function route(req:Request){
  const p=new URL(req.url).pathname.split('/').slice(2); const db=E().DB; const bucket=media(); const user=await currentUser(req);
  if(req.method!=='GET'&&!(req.method==='HEAD'&&p[0]==='video')&&req.headers.get('origin')!==new URL(req.url).origin) return json({error:'Yêu cầu khác nguồn bị từ chối'},403);
+ if(p[0]==='admin'&&p[1]==='affiliate'){
+  if(!admin(user))fail('Chỉ admin được cấu hình Affiliate',403);
+  if(req.method==='GET')return json(await affiliateConfig());
+  if(req.method!=='POST')fail('Phương thức không hỗ trợ',405);
+  let config;try{config=validateAffiliate(await readJson(req,131072))}catch(e:any){fail(e.message)}await writeSetting('affiliate',JSON.stringify(config));return json(config);
+ }
+ if(p[0]==='affiliate'&&p[1]==='click'&&req.method==='POST'){
+  const b:any=await readJson(req,2048);const ep=await db.prepare('SELECT e.series_id,e.number,s.published FROM episodes e JOIN series s ON s.id=e.series_id WHERE e.id=? AND s.deleted_at IS NULL').bind(text(b.episodeId,64)).first();if(!ep||!ep.published)fail('Không tìm thấy tập',404);
+  const rule=await affiliateGate(req,user,ep);if(!rule||rule.id!==b.ruleId)fail('Mốc Affiliate đã thay đổi. Hãy thử lại.');
+  let actor=await affiliateActor(req,user);let cookie='';if(!actor){const id=uid();actor='guest:'+id;cookie=`__Host-hotai_aff=${id}; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=31536000`;}
+  await db.prepare('INSERT OR IGNORE INTO affiliate_clicks(actor,series_id,rule_id,created_at) VALUES(?,?,?,?)').bind(actor,ep.series_id,rule.id+':'+rule.url,Date.now()).run();const response=json({url:rule.url});if(cookie)response.headers.set('Set-Cookie',cookie);return response;
+ }
  if(p[0]==='me')return json({user:user?{email:user.email,role:user.role||'viewer'}:null,admin:admin(user)});
  if(p[0]==='watch-history'&&req.method==='GET'){
   if(!user)fail('Cần đăng nhập',401);return json({episodes:(await db.prepare('SELECT episode_id,series_id,completed FROM watched_episodes WHERE user_id=?').bind(user.userId).all()).results,history:(await db.prepare('SELECT w.series_id AS seriesId,w.episode_id AS episodeId,w.episode_number AS number,w.position,w.completed,w.updated_at AS at,s.title FROM watch_history w JOIN series s ON s.id=w.series_id WHERE w.user_id=? AND s.deleted_at IS NULL ORDER BY w.updated_at DESC LIMIT 100').bind(user.userId).all()).results});
@@ -73,6 +86,7 @@ async function route(req:Request){
    if(!await hasAccess(user.userId,ep.series_id))return json({error:'Tập này cần mở khóa'},403);
   }
   if(p[0]==='playback'){
+   if(!fullAccess(user)&&!(user&&await hasAccess(user.userId,ep.series_id))){const gate=await affiliateGate(req,user,ep);if(gate)return json({error:'Mở liên kết đối tác để tiếp tục xem phim.',affiliate:{id:gate.id,episode:gate.episode}},428);}
    if(req.method!=='POST')return json({error:'Cần mở phim từ ứng dụng'},405);if(Number(req.headers.get('content-length')||0)>2048)return json({error:'Yêu cầu quá lớn'},413);const b:any=await readJson(req,2048);return issuePlayback(req,user,ep,String(b.device||''));
   }
   if(req.method!=='GET'&&req.method!=='HEAD')return json({error:'Phương thức không hỗ trợ'},405);const blocked=await validatePlayback(req,user,ep.id);if(blocked)return blocked;
