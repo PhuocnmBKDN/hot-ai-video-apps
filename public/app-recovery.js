@@ -3,7 +3,7 @@
  function recover(){
   if(!navigator.onLine)return;
   var last=0;try{last=Number(sessionStorage.getItem(key)||0)}catch(e){}
-  if(Date.now()-last<120000){var message=document.getElementById('boot-message');if(message)message.textContent='Chưa tải được ứng dụng. Hãy kiểm tra mạng rồi bấm Tải lại.';return}
+  if(Date.now()-last<120000){var message=document.getElementById('boot-message');if(message)message.textContent='Bạn cần làm mới trang (F5). Hãy kiểm tra kết nối mạng rồi bấm Làm mới trang.';return}
   try{sessionStorage.setItem(key,String(Date.now()))}catch(e){return}
   location.reload();
  }

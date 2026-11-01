@@ -33,3 +33,12 @@
 
 /sw.js
   Cache-Control: no-cache
+
+/version.json
+  Cache-Control: no-store
+
+/manifest.webmanifest
+  Cache-Control: no-cache
+
+/app-recovery.js
+  Cache-Control: no-cache
