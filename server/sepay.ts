@@ -5,6 +5,7 @@ const E=()=>env as any;
 const json=(v:any,status=200)=>Response.json(v,{status,headers:{'Cache-Control':'private, no-store'}});
 async function config(){const r=await E().DB.prepare("SELECT value FROM settings WHERE key='payment_recipient'").first();try{return JSON.parse(r?.value||'null')}catch{return null}}
 export async function sepayWallet(req:Request){
+ const feature=await E().DB.prepare("SELECT value FROM settings WHERE key='payment_features'").first();if(JSON.parse(feature?.value||'{}').wallet===false)return json({ready:false,error:'Chức năng ví và nạp tiền đang tạm tắt'},403);
  const user=await currentUser(req);if(!user)return json({error:'Cần đăng nhập'},401);if(req.method!=='GET')return json({error:'Phương thức không hỗ trợ'},405);
  const recipient=await config();const enabled=await E().DB.prepare("SELECT value FROM settings WHERE key='sepay_enabled'").first();
  if(!E().SEPAY_WEBHOOK_KEY||enabled?.value!=='1'||recipient?.bank?.toLowerCase()!=='tpbank')return json({ready:false});

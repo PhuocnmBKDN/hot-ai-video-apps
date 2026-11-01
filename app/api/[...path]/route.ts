@@ -18,6 +18,7 @@ const fullAccess=(u:any)=>admin(u)||u?.role==='vip';
 const text=(v:any,max=500)=>typeof v==='string'&&v.trim().length<=max?v.trim():fail('Nội dung không hợp lệ');
 const readJson=readObject;
 async function setting(k:string){return (await E().DB.prepare('SELECT value FROM settings WHERE key=?').bind(k).first())?.value}
+async function paymentFeatures(){const value=JSON.parse(await setting('payment_features')||'{}');return {paidLock:value.paidLock!==false,wallet:value.wallet!==false}}
 async function writeSetting(k:string,v:string){await E().DB.prepare('INSERT INTO settings(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value').bind(k,v).run()}
 async function paymentRecipient(){try{const value=JSON.parse(await setting('payment_recipient')||'null');return value&&typeof value.bank==='string'&&typeof value.name==='string'&&/^[0-9]{6,30}$/.test(value.account)?value:null}catch{return null}}
 async function balance(userId:string){return (await E().DB.prepare('SELECT balance FROM wallet_balances WHERE user_id=?').bind(userId).first())?.balance||0}
@@ -40,6 +41,10 @@ async function hasAccess(userId:string,seriesId:string){return !!await E().DB.pr
 async function route(req:Request){
  const p=new URL(req.url).pathname.split('/').slice(2); const db=E().DB; const bucket=media(); const user=await currentUser(req);
  if(req.method!=='GET'&&!(req.method==='HEAD'&&p[0]==='video')&&req.headers.get('origin')!==new URL(req.url).origin) return json({error:'Yêu cầu khác nguồn bị từ chối'},403);
+ if(p[0]==='admin'&&p[1]==='payment-features'){
+  if(!admin(user))fail('Chỉ admin được cấu hình',403);if(req.method==='GET')return json(await paymentFeatures());if(req.method!=='POST')fail('Phương thức không hỗ trợ',405);
+  const b:any=await readJson(req,1024);if(typeof b.paidLock!=='boolean'||typeof b.wallet!=='boolean')fail('Cấu hình không hợp lệ');const flags={paidLock:b.paidLock,wallet:b.wallet};await db.batch([db.prepare('INSERT INTO settings(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value').bind('payment_features',JSON.stringify(flags)),db.prepare("UPDATE settings SET value=CAST(value AS INTEGER)+1 WHERE key='catalog_revision'")]);return json(flags);
+ }
  if(p[0]==='affiliate'&&p[1]==='preview'&&req.method==='GET'){
   const id=new URL(req.url).searchParams.get('ruleId')||'',config=await affiliateConfig();const rule=config.rules.find((r:any)=>id===r.id||id.startsWith(r.id+'-'));if(!rule||(!config.enabled&&!admin(user)))fail('Không có liên kết',404);
   const preview=rule.title&&rule.image?{}:await affiliatePreview(rule.url);return json({...preview,title:rule.title||preview.title||'',image:rule.image||preview.image||'',domain:new URL(rule.url).hostname.includes('shope')?'Shopee':new URL(rule.url).hostname});
@@ -65,7 +70,7 @@ async function route(req:Request){
  }
  if(p[0]==='watch-history'&&req.method==='POST'){
   if(!user)fail('Cần đăng nhập',401);const b:any=await readJson(req);const e=await db.prepare('SELECT e.id,e.series_id,e.number,s.paid_from,s.published FROM episodes e JOIN series s ON s.id=e.series_id WHERE e.id=? AND s.deleted_at IS NULL').bind(text(b.episodeId,64)).first();
-  if(!e||(!e.published&&!admin(user)))fail('Không tìm thấy tập',404);if(e.number>=e.paid_from&&!fullAccess(user)&&!await hasAccess(user.userId,e.series_id))fail('Chưa mở khóa phim',403);
+  if(!e||(!e.published&&!admin(user)))fail('Không tìm thấy tập',404);if(e.number>=e.paid_from&&!fullAccess(user)&&(await paymentFeatures()).paidLock&&!await hasAccess(user.userId,e.series_id))fail('Chưa mở khóa phim',403);
   const position=Number(b.position);if(!Number.isFinite(position)||position<0||position>86400)fail('Vị trí không hợp lệ');
   await db.batch([db.prepare('INSERT INTO watch_history(user_id,series_id,episode_id,episode_number,position,completed,updated_at) VALUES(?,?,?,?,?,?,?) ON CONFLICT(user_id,series_id) DO UPDATE SET episode_id=excluded.episode_id,episode_number=excluded.episode_number,position=excluded.position,completed=excluded.completed,updated_at=excluded.updated_at WHERE watch_history.episode_id<>excluded.episode_id OR abs(watch_history.position-excluded.position)>=1 OR watch_history.completed<>excluded.completed').bind(user.userId,e.series_id,e.id,e.number,position,b.completed===true?1:0,Date.now()),db.prepare('INSERT INTO watched_episodes(user_id,episode_id,series_id,completed,updated_at) VALUES(?,?,?,?,?) ON CONFLICT(user_id,episode_id) DO UPDATE SET completed=excluded.completed,updated_at=excluded.updated_at WHERE watched_episodes.completed<excluded.completed').bind(user.userId,e.id,e.series_id,b.completed===true?1:0,Date.now())]);return json({ok:true});
  }
@@ -88,7 +93,7 @@ async function route(req:Request){
 
   const ep=await db.prepare('SELECT e.*,s.paid_from,s.published,s.deleted_at FROM episodes e JOIN series s ON s.id=e.series_id WHERE e.id=?').bind(p[1]).first();
   if(!ep||ep.deleted_at||(!ep.published&&!admin(user)))return json({error:'Không tìm thấy tập phim'},404);
-  if(ep.number>=ep.paid_from&&!fullAccess(user)){
+  if(ep.number>=ep.paid_from&&!fullAccess(user)&&(await paymentFeatures()).paidLock){
    if(!user)return json({error:'Cần đăng nhập'},401);
    if(!await hasAccess(user.userId,ep.series_id))return json({error:'Tập này cần mở khóa'},403);
   }
@@ -118,6 +123,7 @@ async function route(req:Request){
  if(p[0]==='poster'){const f=await db.prepare("SELECT id,published,(SELECT value FROM settings WHERE key='poster:frame:'||series.id) AS poster_frame FROM series WHERE id=? AND deleted_at IS NULL").bind(p[1]).first();if(!f||(!f.published&&!admin(user)))return json({error:'Không tìm thấy poster'},404);const keys=f.poster_frame==='no'?['posters/'+f.id,'previews/'+f.id+'.jpg']:['previews/'+f.id+'.jpg','posters/'+f.id];const obj=await bucket.get(keys[0])||await bucket.get(keys[1]);return obj?new Response(obj.body,{headers:{'Content-Type':obj.httpMetadata?.contentType||'image/png','Cache-Control':!f.published?'private, no-store':new URL(req.url).searchParams.has('v')?'private, max-age=86400, immutable':'private, max-age=60','X-Content-Type-Options':'nosniff'}}):json({error:'Không có poster'},404)}
  if(p[0]==='qr'){const key=await setting('qr');if(!key)return json({error:'Chưa cấu hình thanh toán'},503);const obj=await bucket.get(key);return obj?new Response(obj.body,{headers:{'Content-Type':obj.httpMetadata?.contentType||'image/png','Cache-Control':'no-store'}}):json({error:'QR chưa có'},404)}
  if(p[0]==='wallet'){
+  const flags=await paymentFeatures();if(!flags.wallet)fail('Chức năng ví và nạp tiền đang tạm tắt',403);if(req.method==='POST'&&p[1]==='buy'&&!flags.paidLock)fail('Phim đang mở xem miễn phí, không cần mua',409);
   if(!user)return json({error:'Đăng nhập để sử dụng ví'},401);
   if(req.method==='GET'&&p[1]==='history'){
    const q=new URL(req.url).searchParams,type=q.get('type')||'ledger',kind=q.get('kind')||'';if(!['ledger','deposits'].includes(type)||!['','deposit','purchase'].includes(kind))fail('Bộ lọc không hợp lệ');const n=Number(q.get('size')),pn=Number(q.get('page'));const size=Number.isSafeInteger(n)&&n>0?Math.min(n,100):10,page=Number.isSafeInteger(pn)&&pn>0?Math.min(pn,1000000):1;
@@ -155,6 +161,7 @@ async function route(req:Request){
   if(!user)return json({error:'Đăng nhập để lưu quyền xem'},401);
   if(req.method==='GET')return json({orders:(await db.prepare('SELECT o.id,o.series_id,o.amount,o.status,o.created_at,s.title FROM orders o JOIN series s ON s.id=o.series_id WHERE o.user_id=? ORDER BY o.created_at DESC').bind(user.userId).all()).results});
   if(req.method==='POST'){
+   const flags=await paymentFeatures();if(!flags.wallet)fail('Chức năng ví và nạp tiền đang tạm tắt',403);if(!flags.paidLock)fail('Phim đang mở xem miễn phí, không cần mua',409);
    const b=await readJson(req) as any;const film=await db.prepare('SELECT id,paid_from FROM series WHERE id=? AND published=1 AND deleted_at IS NULL').bind(text(b.seriesId,64)).first();if(!film)fail('Bộ phim chưa phát hành');if(fullAccess(user))return json({alreadyUnlocked:true,adminAccess:true});
    if(await hasAccess(user.userId,film.id))return json({alreadyUnlocked:true});
    if(!await setting('qr')||!await paymentRecipient())return json({error:'Thanh toán chưa mở. Vui lòng quay lại sau.'},503);

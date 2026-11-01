@@ -27,3 +27,6 @@ globalThis.__sepayUser=null;assert.equal((await api.sepayWallet(new Request('htt
 console.log('PASS: authenticated webhook, recipient/direction checks, private personalized QR, actual amount, exact memo matching, duplicate id/reference, unmatched/ambiguous memo, wallet history.');
 
 const beforeMalformed=balance();for(const value of [null,[],{...body,gateway:123}])assert.equal((await send(value)).status,400);assert.equal(balance(),beforeMalformed);console.log('PASS: malformed authenticated webhook payloads never credit a wallet.');
+sqlite.prepare('INSERT INTO settings(key,value) VALUES(?,?)').run('payment_features',JSON.stringify({paidLock:false,wallet:false}));
+globalThis.__sepayUser={userId:'alice',username:'alice_01'};assert.equal((await api.sepayWallet(new Request('https://test.local/api/wallet/transfer?amount=10000'))).status,403);
+assert.equal((await send({...body,id:20,referenceCode:'FT20'})).status,200);assert.equal(balance(),beforeMalformed+10000,'Outstanding real transfers are credited while new deposits are disabled');

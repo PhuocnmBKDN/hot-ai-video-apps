@@ -54,6 +54,18 @@ globalThis.__testUser=alice;
 for(const n of [1,2,3]){const gate=await call('playback/e3',{device:'test'});assert.equal(gate.status,428);assert.equal(gate.body.affiliate.episode,n);assert.equal((await call('affiliate/click',{episodeId:'e3',ruleId:gate.body.affiliate.id})).status,200)}
 assert.equal((await call('playback/e3',{device:'test'})).status,200);
 globalThis.__testUser=owner;await call('admin/affiliate',{enabled:false,rules:multi.body.rules});
+assert.deepEqual((await call('admin/payment-features')).body,{paidLock:true,wallet:true});
+assert.equal((await call('admin/payment-features',{paidLock:false,wallet:false})).status,200);
+globalThis.__testUser=alice;assert.equal((await call('admin/payment-features')).status,403);
+assert.equal((await call('wallet')).status,403);assert.equal((await call('wallet/buy',{seriesId:film.id})).status,403);
+assert.equal((await call('video/e12')).status,200,'Paid episodes become free when locking is off');
+sqlite.prepare('INSERT OR IGNORE INTO accounts(id,username,password_hash,created_at) VALUES(?,?,?,?)').run(alice.userId,alice.userId,'test-only',0);
+assert.equal((await call('watch-history',{episodeId:'e12',position:5})).status,200,'History is saved for newly free episodes');
+sqlite.prepare('DELETE FROM watch_history WHERE user_id=?').run(alice.userId);sqlite.prepare('DELETE FROM watched_episodes WHERE user_id=?').run(alice.userId);
+const freeCatalog=await call('catalog');assert.equal(freeCatalog.body.features.wallet,false);assert.equal(freeCatalog.body.films[0].paidLockEnabled,false);
+globalThis.__testUser=owner;await call('admin/affiliate',{enabled:true,rules:[{episodeText:'5',url:'https://s.shopee.vn/feature-test'}]});
+globalThis.__testUser=alice;assert.equal((await call('playback/e12',{device:'test'})).status,428,'Affiliate still blocks when paid locking is off');
+globalThis.__testUser=owner;await call('admin/affiliate',{enabled:false,rules:[]});await call('admin/payment-features',{paidLock:true,wallet:true});
 globalThis.__testUser=null;assert.equal((await call('video/e3')).status,200);assert.equal((await call('video/e4')).status,401);
 globalThis.__testUser=alice;assert.equal((await call('video/e4')).status,403);assert.equal((await call('orders',{seriesId:film.id})).status,503,'No QR means no checkout');
 sqlite.prepare('INSERT INTO settings VALUES(?,?)').run('qr','payment/qr');assert.equal((await call('orders',{seriesId:film.id})).status,503,'QR without recipient must not enable checkout');sqlite.prepare('INSERT INTO settings VALUES(?,?)').run('payment_recipient',JSON.stringify({bank:'Test bank',account:'0123456789',name:'TEST RECIPIENT'}));const order=await call('orders',{seriesId:film.id});assert.equal(order.status,200);assert.equal((await call('orders',{seriesId:film.id})).body.id,order.body.id,'Pending order reused');
