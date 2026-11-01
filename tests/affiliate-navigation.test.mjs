@@ -1,0 +1,15 @@
+import assert from 'node:assert/strict';
+import {readFileSync} from 'node:fs';
+import ts from 'typescript';
+const source=ts.transpileModule(readFileSync('lib/affiliate-navigation.ts','utf8'),{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.ES2022}}).outputText;
+const api=await import('data:text/javascript;base64,'+Buffer.from(source).toString('base64'));
+const stored=new Map();let destination='',back='';
+globalThis.sessionStorage={getItem:k=>stored.get(k),setItem:(k,v)=>stored.set(k,v),removeItem:k=>stored.delete(k)};
+globalThis.location={href:'https://hotai.bro.io.vn/?category=HOT',assign(url){destination=url}};
+globalThis.history={state:{page:1},replaceState(state,unused,url){back=url}};
+api.leaveForAffiliate('episode-5','https://s.shopee.vn/example');
+assert.equal(destination,'https://s.shopee.vn/example');assert.equal(new URL(back).searchParams.get('episode'),'episode-5');assert.equal(new URL(back).searchParams.get('category'),'HOT');
+assert.equal(api.consumeAffiliateReturn('another-episode'),false);assert.equal(api.consumeAffiliateReturn('episode-5'),true);assert.equal(api.consumeAffiliateReturn('episode-5'),false);
+assert.throws(()=>api.leaveForAffiliate('episode-5','javascript:alert(1)'));
+assert(!readFileSync('components/protected-video.tsx','utf8').includes('about:blank'));
+console.log('PASS: actual-document affiliate navigation, retained episode/category, one-time return recovery, HTTPS validation and no blank intermediate tab.');
