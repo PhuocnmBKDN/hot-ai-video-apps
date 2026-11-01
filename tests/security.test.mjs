@@ -41,6 +41,13 @@ blocked=await call('playback/e3',{device:'test'});assert.equal(blocked.body.affi
 assert.equal((await call('affiliate/click',{episodeId:'e3',ruleId:aff.body.rules[1].id})).status,200);
 assert.equal((await call('playback/e3',{device:'test'})).status,200);
 globalThis.__testUser=owner;assert.equal((await call('admin/affiliate',{enabled:false,rules:aff.body.rules})).status,200);
+const multi=await call('admin/affiliate',{enabled:true,rules:[{episodeText:'3, 1, 2',url:'https://s.shopee.vn/multi'}]});assert.equal(multi.status,200);assert.deepEqual(multi.body.rules[0].episodes,[1,2,3]);
+assert.equal((await call('admin/affiliate',{enabled:true,rules:[{episodeText:'1, 1',url:'https://s.shopee.vn/multi'}]})).status,400);
+assert.equal((await call('admin/affiliate',{enabled:true,rules:[{episodeText:'1, abc',url:'https://s.shopee.vn/multi'}]})).status,400);
+globalThis.__testUser=alice;
+for(const n of [1,2,3]){const gate=await call('playback/e3',{device:'test'});assert.equal(gate.status,428);assert.equal(gate.body.affiliate.episode,n);assert.equal((await call('affiliate/click',{episodeId:'e3',ruleId:gate.body.affiliate.id})).status,200)}
+assert.equal((await call('playback/e3',{device:'test'})).status,200);
+globalThis.__testUser=owner;await call('admin/affiliate',{enabled:false,rules:multi.body.rules});
 globalThis.__testUser=null;assert.equal((await call('video/e3')).status,200);assert.equal((await call('video/e4')).status,401);
 globalThis.__testUser=alice;assert.equal((await call('video/e4')).status,403);assert.equal((await call('orders',{seriesId:film.id})).status,503,'No QR means no checkout');
 sqlite.prepare('INSERT INTO settings VALUES(?,?)').run('qr','payment/qr');assert.equal((await call('orders',{seriesId:film.id})).status,503,'QR without recipient must not enable checkout');sqlite.prepare('INSERT INTO settings VALUES(?,?)').run('payment_recipient',JSON.stringify({bank:'Test bank',account:'0123456789',name:'TEST RECIPIENT'}));const order=await call('orders',{seriesId:film.id});assert.equal(order.status,200);assert.equal((await call('orders',{seriesId:film.id})).body.id,order.body.id,'Pending order reused');
