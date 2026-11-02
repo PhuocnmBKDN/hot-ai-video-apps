@@ -2,6 +2,17 @@
 
 React + Vite frontend, Cloudflare Worker API, D1 database, private R2 media. This directory has no dependency on Sites or ChatGPT sign-in. Production runs at https://hotai.bro.io.vn on the owner's Cloudflare account. The original `../web` source is outside this repository.
 
+## Documentation map
+
+- [Project-wide contributor instructions](AGENTS.md)
+- [Architecture](docs/architecture.md)
+- [Database schema](docs/database-schema.md)
+- [API design](docs/api-design.md)
+- [Technical decisions and constraints](docs/technical-decisions.md)
+- [Current development status and handoff](docs/development-status.md)
+
+`docs/development-status.md` is the authoritative handoff for the deployed revision, unfinished local work, pending tasks, and known limitations. Review it together with `git status` before implementing or deploying.
+
 ## Prerequisites
 
 - Your own Cloudflare account, email verified, with account recovery and MFA configured.
@@ -16,7 +27,7 @@ React + Vite frontend, Cloudflare Worker API, D1 database, private R2 media. Thi
 3. `npx wrangler r2 bucket create hot-ai-drama-media`. Keep the bucket private. Do not enable public `r2.dev` access.
 4. `npm run db:remote` applies all schema migrations.
 5. Import the validated old-site snapshot into the **new empty database only**, using `npx wrangler d1 execute DB --remote --file ../work/migration-backup/data.sql`. Re-export the live data at cutover if any writes occurred since this snapshot. Never replay the snapshot on a populated database.
-6. Copy original R2 objects without changing keys. Current snapshot: `episodes/0e5625a9-7e0f-41f8-a320-5517a64dd363.mp4` and `payment/qr`. Backups are in `../work/migration-backup`. Use `wrangler r2 object put hot-ai-drama-media/<key> --file <path> --content-type <type> --remote`.
+6. For the original one-time migration only, copy the validated private R2 backup without changing object keys. Do not treat an old README object list as a current production inventory and do not replay migration media into an active bucket. Use `wrangler r2 object put hot-ai-drama-media/<key> --file <path> --content-type <type> --remote` only against the intended account and bucket.
 7. `npm run typecheck`, `npm test`, `npm run build`, then `npm run deploy`. Test the returned workers.dev URL before attaching the real domain.
 8. Create the owner's username/password through `/login` on the new deployment. Password entry stays with the owner. Only then promote the exact username with the trusted Cloudflare CLI: `wrangler d1 execute DB --remote --command "UPDATE accounts SET role='admin' WHERE username='<owner username>'"`. Registration always creates a viewer; never promote based on the first account or a public bootstrap request.
 9. Verify admin upload, anonymous preview, protected episodes, deposits, wallet debit and purchase ownership. Test the complete browser proof + server hash flow on the actual Free Worker; local workerd may accept crypto parameters rejected by hosted Workers.
@@ -72,4 +83,4 @@ The desktop obtains Vietnamese TikTok theme labels by `tagKey` from the Vietname
 
 Import responses and status include canonical `genres`. VideoLink requires the acknowledgement before uploading videos. Unit tests cover new/existing Vietnamese labels, decomposed Unicode/case duplicates, invalid inputs, old clients, manual-label retention and a simulated concurrent registry edit. The disposable workerd/D1/R2 test also verifies registered labels in the catalog and exercises the Windows uploader with genre metadata. These tests do not alter production movie records.
 
-Deployment verified on 2026-10-28 at https://hotai.bro.io.vn: genreImportVersion=1, authenticated admin access, anonymous denial and invalid-metadata rejection. Cloudflare Worker version: 7ff46c69-3bed-4306-a9a0-300c10d1a288. The merged release retains playback-session protection and the latest admin film sorting. No production film/test upload was created during verification.
+The genre-import protocol was verified in production on 2026-10-28 with authenticated admin access, anonymous denial, and invalid-metadata rejection. This is a historical protocol verification, not the current deployment marker. See `docs/development-status.md` for the current production revision and Worker version; update that handoff after every deployment.
