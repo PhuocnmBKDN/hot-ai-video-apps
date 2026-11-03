@@ -1,6 +1,6 @@
 # Cloudflare cost optimization — 2026-11-03
 
-Implementation is prepared locally. Production deployment requires an authenticated Wrangler session and migration `0021_cost_artwork.sql` before deploying the Worker. Do not claim an invoice saving until usage is measured.
+Deployed on 2026-11-03: code `8ee2bfb`, Worker `9bec8179-2ed0-4290-a167-f4809886b98f`; migration `0021_cost_artwork.sql` applied. Live compact catalog measured 14,540 JSON bytes, 12 films / 72 total across 6 pages, and zero episode entries in the list (about 95.9% fewer JSON bytes than the pre-deployment baseline). Lazy detail, poster 200/304, anonymous admin 403 and guest playback byte-range 206 passed. Derived episode counts matched actual episodes with zero mismatches. No invoice-saving percentage is claimed.
 
 ## Implemented
 
@@ -37,4 +37,4 @@ Implementation is prepared locally. Production deployment requires an authentica
 
 `npm run typecheck`, `npm test` (including cost-v2), production build, and `node tests/cost-runtime.mjs`. Added tests cover disjoint pages, bounded admin lists, lazy episodes, trigger counts, source-specific artwork versions, cross-user rights isolation, warm-cache draft denial, coalescing, and repeat-view suppression. Local encoding was tested on the synthetic sample: because encoding was larger, the tool retained the original.
 
-Fresh desktop/mobile visual verification and before/after production Usage/Billing comparison are not claimed. Wrangler `whoami` reported unauthenticated at the deployment check.
+Fresh desktop/mobile visual verification and before/after production Usage/Billing comparison are not claimed. Wrangler authentication was refreshed by the owner before deployment; the verified account ID matched the configured owner account.

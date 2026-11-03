@@ -1,23 +1,23 @@
 # Development status
 
-Reviewed against the working tree on 2026-11-02.
+Reviewed against deployed cost release on 2026-11-03.
 
-## 2026-11-03 cost release prepared
+## 2026-11-03 cost release deployed
 
-See [cost implementation and validation](cost-optimization-2026-11-03.md). New code adds compact paginated catalog responses, lazy episode/marker loading, shared published-artwork cache with independent versions, episode counters, scoped/paginated admin requests, ranking cache, combined playback SQL, CryptoKey reuse, repeat-view suppression, and read-only media audit / local encoding tools. Migration `0021_cost_artwork.sql` is required before Worker deployment. Wrangler is currently unauthenticated; this release is not yet deployed. The production baseline below remains the last documented version.
+See [cost implementation and validation](cost-optimization-2026-11-03.md). New code adds compact paginated catalog responses, lazy episode/marker loading, shared published-artwork cache with independent versions, episode counters, scoped/paginated admin requests, ranking cache, combined playback SQL, CryptoKey reuse, repeat-view suppression, and read-only media audit / local encoding tools. Migration `0021_cost_artwork.sql` was applied and code revision `8ee2bfb` deployed as Worker version `9bec8179-2ed0-4290-a167-f4809886b98f`. Live checks passed: 12-film compact page (14,540 JSON bytes versus 353,737 before), lazy detail, poster 200/304, guest admin denial 403, guest playback issue 200 / byte range 206, lease release, and zero episode-counter mismatches.
 
 The earlier pending import/view-limit edits and unconnected ad draft remain separate local work. Follow the cost report for remaining limitations, legacy-client compatibility, and runtime-test caveat.
 
 ## Production baseline
 
 - Domain: `https://hotai.bro.io.vn/`
-- Git branch/revision: `main` at `7efd65f` (`Highlight catalog pagination controls`)
-- Last known deployed Worker version: `38676378-22f5-4b8d-bc3a-c64e01403ed7`
+- Git branch/revision: code revision `8ee2bfb` (`Keep legacy PWA history compatible with compact loading`); subsequent documentation commits do not change the deployed code
+- Last known deployed Worker version: `9bec8179-2ed0-4290-a167-f4809886b98f`
 - Cloudflare Worker: `hot-ai-drama`
 - D1: `hot-ai-drama` (`e9851475-1da7-4599-8760-ecbcb6febbb6`)
 - Private R2: `hot-ai-drama-media`
-- Schema migrations present: `0000`–`0020`
-- Verification on current local tree: `npm run typecheck` and all scripted unit/security/cost tests passed on 2026-11-02.
+- Schema migrations present: `0000`–`0021`
+- Verification on current local tree: `npm run typecheck` and all scripted unit/security/cost tests passed on 2026-11-03.
 
 The live revision contains the pagination emphasis change, admin-only view-count display, public information/privacy/contact pages, admin film deep links, PWA release detection/recovery, permanent public film share IDs, protected playback, affiliate gates, wallet/SePay, and the features listed below.
 
@@ -93,7 +93,7 @@ Before continuing, split these into focused commits. Do not accidentally deploy 
 - No reproducible blocking test failure is known at this review; typecheck and the full scripted suite pass.
 - The working ad draft is incomplete and must not be enabled.
 - Initial posters can still be network-bound on cold mobile caches. The app normalizes future poster/frame inputs, but existing oversized source assets may need a one-time verified normalization pass.
-- View count increments per film-open action and has no unique actor/day deduplication; it is a popularity signal, not audited analytics.
+- Repeat actor/film opens are suppressed for 30 minutes in a bounded isolate cache. This remains best effort across cold isolates/regions and is not audited unique-user analytics.
 - Period rankings include only app opens recorded since daily counters were introduced. Imported historical views affect the total counter/tie-breaking, not past daily buckets.
 - Guest follows/history/affiliate unlocks are browser/device scoped. Clearing storage/cookies loses them.
 - No password recovery or verified contact channel is attached to accounts.

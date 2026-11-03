@@ -16,7 +16,7 @@ The API never accepts a raw password. See `docs/architecture.md` for the version
 
 ## Catalog, progress, ranking, and sharing
 
-Prepared cost release: `/api/catalog?page=1&size=12&query=&genre=&category=&period=` returns `{films,total,page,pages,...}` with compact summaries. `ids` optionally filters followed film IDs. `/api/film?id=<internal-or-public-id>` or `?episode=<episodeId>` returns one authorized film with ordered episode IDs and caller-scoped watched markers. Startup `/api/watch-history` returns recent history, with markers loaded via film detail. Legacy catalog calls without list parameters retain episode arrays for old PWAs.
+Deployed cost release (2026-11-03): `/api/catalog?page=1&size=12&query=&genre=&category=&period=` returns `{films,total,page,pages,...}` with compact summaries. `ids` optionally filters followed film IDs. `/api/film?id=<internal-or-public-id>` or `?episode=<episodeId>` returns one authorized film with ordered episode IDs and caller-scoped watched markers. Startup `/api/watch-history` returns recent history, with markers loaded via film detail. Legacy catalog calls without list parameters retain episode arrays for old PWAs.
 
 Admin `/api/admin/film-list` accepts query, genre, status, sort, direction, page and size; `/api/admin/user-list` accepts query, role, sort, page and size. Existing film detail and dashboard endpoints accept `id` to restrict metadata/episodes. Read-only `/api/admin/storage?audit=1&cursor=` reports a bounded R2 inventory page, never deletion. See the dated cost report for compatibility and cache policies.
 

@@ -24,14 +24,14 @@ Production domain: `https://hotai.bro.io.vn/`. Worker preview URL: `https://hot-
 
 ## Client
 
-Prepared 2026-11-03 cost release changes: paged compact catalog, on-demand `/api/film` episodes/markers, derived episode counts, versioned published-artwork edge byte caching with live publication checks, and bounded per-period ranking caches. Sessions, leases, balances and entitlements remain live checks. See `cost-optimization-2026-11-03.md` for deployment state and legacy-client compatibility.
+Deployed 2026-11-03 cost release changes: paged compact catalog, on-demand `/api/film` episodes/markers, derived episode counts, versioned published-artwork edge byte caching with live publication checks, and bounded per-period ranking caches. Sessions, leases, balances and entitlements remain live checks. See `cost-optimization-2026-11-03.md` for deployment state and legacy-client compatibility.
 
 - `src/main.tsx` selects the home, admin, login, and information-page entry experience.
 - `app/page.tsx` owns catalog tabs, search/filter/pagination, film dialogs, resume choice, playback, checkout, history, follows, and account navigation.
 - `app/admin/page.tsx` owns admin sections and film management. Large features are split into `components/admin-*`, upload, poster, role, history, wallet, and episode components.
 - `components/protected-video.tsx` opens a playback lease, supplies the `<video>` source, renews the lease, releases it, and renders affiliate gates.
 - `components/app-updater.tsx`, `public/sw.js`, `public/version.json`, and `public/app-recovery.js` handle PWA updates and stale/blank-screen recovery.
-- Guest watch history and watched markers use local storage. Logged-in durable progress uses D1 through `/api/watch-history`.
+- Guest watch history and watched markers use local storage. Logged-in durable progress uses D1 through `/api/watch-history?summary=1` plus film-scoped markers in `/api/film`.
 
 The service worker is deliberately small: navigation is network-first, offline fallback is static, icons may be cached, and `/api/*`, login, media, and release-version responses are never stored by the service worker.
 

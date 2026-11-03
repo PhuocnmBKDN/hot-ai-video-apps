@@ -1,10 +1,10 @@
 # Database schema
 
-The production database is Cloudflare D1/SQLite. Migrations `0000` through `0020` in `drizzle/` are the schema source of truth. All timestamps are Unix milliseconds unless stated otherwise; money is integer VND. Do not modify an applied migration.
+The production database is Cloudflare D1/SQLite. Migrations `0000` through `0021` in `drizzle/` are the schema source of truth. All timestamps are Unix milliseconds unless stated otherwise; money is integer VND. Do not modify an applied migration.
 
 ## Core catalog
 
-Prepared migration `0021_cost_artwork.sql` adds `series.artwork_version` (default 1), `series.episode_count` (backfilled from episodes), artwork setting triggers, episode insert/delete/move counter triggers, and index `watched_user_series(user_id,series_id)`. Apply before deploying the cost release. These fields are derived metadata; they do not change wallet/account records.
+Applied migration `0021_cost_artwork.sql` adds `series.artwork_version` (default 1), `series.episode_count` (backfilled from episodes), artwork setting triggers, episode insert/delete/move counter triggers, and index `watched_user_series(user_id,series_id)`. Applied to production on 2026-11-03. These fields are derived metadata; they do not change wallet/account records.
 
 ### `series`
 
