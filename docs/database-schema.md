@@ -4,6 +4,8 @@ The production database is Cloudflare D1/SQLite. Migrations `0000` through `0020
 
 ## Core catalog
 
+Prepared migration `0021_cost_artwork.sql` adds `series.artwork_version` (default 1), `series.episode_count` (backfilled from episodes), artwork setting triggers, episode insert/delete/move counter triggers, and index `watched_user_series(user_id,series_id)`. Apply before deploying the cost release. These fields are derived metadata; they do not change wallet/account records.
+
 ### `series`
 
 Film metadata: `id` PK, `title`, `description`, comma-separated `genre`, historical `total`, `published`, `created_at`, `updated_at`, `paid_from`, soft-delete `deleted_at`, first-publication fields `first_published_at` and `publication_seen`, non-negative `view_count`, and source-independent unique `public_share_id`.

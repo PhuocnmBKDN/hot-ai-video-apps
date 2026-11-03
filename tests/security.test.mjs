@@ -1,4 +1,4 @@
-import {catalog as catalogModule,metadata} from './cost-modules.mjs';
+import {catalog as catalogModule,metadata,extra} from './cost-modules.mjs';
 globalThis.__catalog=catalogModule;globalThis.__metadata=metadata;
 import {requestBodyModule} from './request-body-module.mjs';
 globalThis.__requestBody=requestBodyModule;
@@ -11,6 +11,8 @@ const objects=new Map();let r2Heads=0,r2Deletes=0;
 let preparedCalls=0;const db={prepare(sql){preparedCalls++;let args=[];const q={bind(...a){args=a;return q},async first(){return sqlite.prepare(sql).get(...args)||null},async all(){return {results:sqlite.prepare(sql).all(...args)}},async run(){return sqlite.prepare(sql).run(...args)}};return q},async batch(list){sqlite.exec('BEGIN');try{const out=[];for(const q of list)out.push(await q.run());sqlite.exec('COMMIT');return out}catch(e){sqlite.exec('ROLLBACK');throw e}}};
 globalThis.__testEnv={DB:db,ADMIN_EMAIL:'owner@test.local',BUCKET:{async head(k){r2Heads++;return objects.has(k)?{size:objects.get(k).length}:null},async get(k,options){const body=objects.get(k);if(!body)return null;const r=options?.range;return {body:r?body.subarray(r.offset,r.offset+r.length):body,size:body.length,httpMetadata:{contentType:'video/mp4'}}},async put(k,v){objects.set(k,Buffer.from(await new Response(v).arrayBuffer()));return {size:objects.get(k).length}},async delete(k){r2Deletes++;for(const key of Array.isArray(k)?k:[k])objects.delete(key)}}};globalThis.__testUser=null;
 let source=readFileSync('app/api/[...path]/route.ts','utf8').replace("import {assertLightPoster} from '../../../lib/poster-policy';","const assertLightPoster=bytes=>{if(bytes.length>512*1024)throw Object.assign(Error('Poster too large'),{status:413})};").replace("import {catalogBase} from '../../../server/catalog';","const {catalogBase}=globalThis.__catalog;").replace("import {mediaMetadata,forgetMediaMetadata} from '../../../server/media-metadata';","const {mediaMetadata,forgetMediaMetadata}=globalThis.__metadata;").replace("import {readBytes,readObject,validImage} from '../../../lib/request-body';","const {readBytes,readObject,validImage}=globalThis.__requestBody;").replace("import {issuePlayback,validatePlayback,playbackControl,foreignMedia} from '../../../server/playback';","const validatePlayback=async()=>null;const foreignMedia=()=>false;const issuePlayback=()=>new Response('{}');const playbackControl=()=>new Response('{}');").replace("import {GENRES} from '../../../lib/genres';","const GENRES=['Tình cảm','Test'];").replace("import { env } from 'cloudflare:workers';","const env=globalThis.__testEnv;").replace("import {media} from '../../../server/media';","const media=()=>env.BUCKET;").replace("import { currentUser } from '../../../server/auth';","const currentUser=async()=>globalThis.__testUser;");
+source=source.replace(/import \{sortAdminFilms\} from '[^']+';/,"const {sortAdminFilms}=globalThis.__extra;").replace(/import \{catalogList\} from '[^']+';/,"const {catalogList}=globalThis.__extra;").replace(/import \{artworkResponse\} from '[^']+';/,"const {artworkResponse}=globalThis.__extra;").replace(/import \{cachedRead,allowView\} from '[^']+';/,"const {cachedRead,allowView}=globalThis.__extra;");
+globalThis.__extra=extra;
 const affiliateSource=ts.transpileModule(readFileSync('server/affiliate.ts','utf8').replace("import {env} from 'cloudflare:workers';","const env=globalThis.__testEnv;"),{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.ES2022}}).outputText;
 globalThis.__affiliate=await import('data:text/javascript;base64,'+Buffer.from(affiliateSource).toString('base64'));
 const originalFetch=globalThis.fetch;let previewFetches=0;
@@ -33,7 +35,7 @@ await call('admin/series',{title:'Test',genre:'Bí ẩn',description:'Test',paid
 assert.equal((await call('admin/publish',{id:film.id,publish:true})).status,400,'Film without episode 1 must not publish');
 sqlite.prepare('INSERT INTO episodes VALUES(?,?,?,?,?)').run('early',film.id,1,'First','early');
 assert.equal((await call('admin/publish',{id:film.id,publish:true})).status,200,'Film can publish while later episodes are still pending');
-assert.equal((await call('catalog')).body.films[0].episodes.length,1);
+assert.equal((await call('catalog')).body.films[0].total,1);
 globalThis.__testUser=null;assert.equal((await call('series-view',{seriesId:film.id})).status,200);assert.equal(sqlite.prepare('SELECT view_count FROM series WHERE id=?').get(film.id).view_count,1,'Opening a published film increments its view count');
 for(const period of ['day','week','month','year']){const ranking=await call('rankings?period='+period);assert.equal(ranking.status,200);assert.equal(ranking.body.rows.find(r=>r.series_id===film.id).views,1)}assert.equal((await call('rankings?period=bad')).status,400);globalThis.__testUser=owner;
 sqlite.prepare('DELETE FROM episodes WHERE id=?').run('early');
@@ -82,7 +84,7 @@ assert.equal((await call('admin/confirm',{id:order.body.id,reference:'bank1'})).
 globalThis.__testUser=alice;assert.equal((await call('video/e12')).status,200);
 globalThis.__testUser=bob;assert.equal((await call('video/e4')).status,403,'Grant belongs only to purchaser');const order2=await call('orders',{seriesId:film.id});globalThis.__testUser=owner;assert.equal((await call('admin/confirm',{id:order2.body.id,reference:'bank1'})).status,400,'Bank reference cannot be reused');
 globalThis.__testUser=bob;assert.equal((await call('video/e4')).status,403);assert.equal((await call('orders')).body.orders.length,1,'Users see only own orders');
-const catalog=(await call('catalog')).body;assert.equal(catalog.films[0].buyers,1);assert.equal(catalog.films[0].unlocked,false);assert(!JSON.stringify(catalog).includes('object_key'));
+const catalog=(await call('catalog')).body;assert.equal(catalog.films[0].unlocked,false);assert(!JSON.stringify(catalog).includes('object_key'));
 console.log('PASS: guest/paywall boundary, owner authorization, CSRF, serialized publishing, QR gate, pending order reuse, payment idempotency, cross-user isolation, duplicate bank reference, private object keys.');
 
 globalThis.__testUser=owner;
@@ -204,7 +206,7 @@ for(const u of [alice,bob])sqlite.prepare('INSERT OR IGNORE INTO accounts(id,use
 sqlite.prepare('UPDATE series SET paid_from=1 WHERE id=?').run(preview.id);
 globalThis.__testUser=alice;assert.equal((await call('admin/free-access',{seriesId:preview.id,username:'alice'})).status,403);assert.equal((await call('video/preview1')).status,403);
 globalThis.__testUser=owner;assert.equal((await call('admin/free-access',{seriesId:preview.id,username:'missing'})).status,404);assert.equal((await call('admin/free-access',{seriesId:preview.id,username:'alice'})).status,200);
-globalThis.__testUser=alice;assert.equal((await call('video/preview1')).status,200);assert((await call('catalog')).body.films.find(f=>f.id===preview.id).unlocked);const beforeFreeBuy=(await call('wallet')).body.balance;assert((await call('wallet/buy',{seriesId:preview.id})).body.alreadyUnlocked);assert.equal((await call('wallet')).body.balance,beforeFreeBuy);
+globalThis.__testUser=alice;assert.equal((await call('video/preview1')).status,200);assert((await call('catalog?ids='+preview.id)).body.films.find(f=>f.id===preview.id).unlocked);const beforeFreeBuy=(await call('wallet')).body.balance;assert((await call('wallet/buy',{seriesId:preview.id})).body.alreadyUnlocked);assert.equal((await call('wallet')).body.balance,beforeFreeBuy);
 globalThis.__testUser=owner;assert.equal((await call('admin/free-access',{seriesId:preview.id,previousUsername:'alice',username:'bob'})).status,200);
 globalThis.__testUser=alice;assert.equal((await call('video/preview1')).status,403);globalThis.__testUser=bob;assert.equal((await call('video/preview1')).status,200);
 sqlite.prepare('INSERT INTO grants VALUES(?,?,?,?)').run('paid-preview','bob',preview.id,'paid-test');globalThis.__testUser=owner;await call('admin/free-access',{seriesId:preview.id,username:'bob',remove:true});globalThis.__testUser=bob;assert.equal((await call('video/preview1')).status,200,'Removing gift access never removes purchased access');
@@ -236,7 +238,7 @@ for(const [range,status,body,contentRange] of [['bytes=0-1',206,'te','bytes 0-1/
 const head=await api.GET(new Request(origin+'/api/video/preview1',{method:'HEAD'}));assert.equal(head.status,200);assert.equal(head.headers.get('Content-Length'),'10');assert.equal(await head.text(),'');
 console.log('PASS: seek byte probes, open-ended and suffix ranges, EOF clamping, unsatisfiable ranges and HEAD.');
 
-globalThis.__testUser=bob;const ownWatch=(await call('watch-history')).body;assert(ownWatch.episodes.some(e=>e.episode_id==='preview1'));globalThis.__testUser=alice;assert(!(await call('watch-history')).body.episodes.some(e=>e.episode_id==='preview1'));globalThis.__testUser=null;assert.equal((await call('watch-history')).status,401);console.log('PASS: watched episode markers persist and are isolated by account.');
+globalThis.__testUser=bob;const ownWatch=(await call('film?id='+preview.id)).body;assert(ownWatch.watched.some(e=>e.episode_id==='preview1'));globalThis.__testUser=alice;assert(!(await call('film?id='+preview.id)).body.watched.some(e=>e.episode_id==='preview1'));globalThis.__testUser=null;assert.equal((await call('watch-history')).status,401);console.log('PASS: watched episode markers persist and are isolated by account.');
 
 globalThis.__testUser=bob;assert.equal((await call('admin/genres',{name:'New genre'})).status,403);
 globalThis.__testUser=owner;assert.equal((await call('admin/genres',{name:'New genre'})).status,200);assert.equal((await call('admin/genres',{name:'new genre'})).status,400);
@@ -251,7 +253,7 @@ globalThis.__testUser=null;assert.equal((await call('wallet/history')).status,40
 globalThis.__testUser=owner;
 const malformed=await api.GET(new Request(origin+'/api/admin/series',{method:'POST',headers:{Origin:origin,'Content-Type':'application/json'},body:'null'}));assert.equal(malformed.status,400);
 for(let i=0;i<120;i++)sqlite.prepare('INSERT INTO series(id,title,description,genre,total,paid_from,published,created_at) VALUES(?,?,?,?,0,2,1,?)').run('perf'+i,'Performance fixture '+i,'fixture','Test',i);
-preparedCalls=0;const bigCatalog=await call('catalog');assert.equal(bigCatalog.status,200);assert(bigCatalog.body.films.length>=120);assert(preparedCalls<=8,'Catalog query count must stay constant for 120 films');
+preparedCalls=0;const bigCatalog=await call('catalog?page=1');assert.equal(bigCatalog.status,200);assert(bigCatalog.body.total>=120);assert.equal(bigCatalog.body.films.length,12);assert(preparedCalls<=8,'Catalog query count must stay constant for 120 films');
 console.log('PASS: private paginated wallet history, summary polling, malformed JSON and bounded catalog queries at 120 films.');
 
 // Regression coverage for the second audit, using isolated fixtures only.
@@ -278,16 +280,16 @@ assert.equal(truncatedUpload.status,409);assert.equal(sqlite.prepare('SELECT cou
 console.log('PASS: incomplete video uploads never create playable episodes or leave new objects.');
 
 // Cache only shared metadata. Every response must hydrate live entitlements.
-globalThis.__testUser=null;await call('catalog');preparedCalls=0;const cachedGuest=await call('catalog');assert.equal(preparedCalls,1,'Warm guest catalog checks only the revision, not all films/episodes/orders');assert.equal(cachedGuest.body.account.user,null);
-globalThis.__testUser=owner;preparedCalls=0;const cachedAdmin=await call('catalog');assert.equal(preparedCalls,2);assert(cachedAdmin.body.films.every(f=>f.unlocked&&f.adminAccess));
+globalThis.__testUser=null;await call('catalog?page=1');preparedCalls=0;const cachedGuest=await call('catalog?page=1');assert.equal(preparedCalls,1,'Warm guest catalog checks only the revision, not all films/episodes/orders');assert.equal(cachedGuest.body.account.user,null);
+globalThis.__testUser=owner;preparedCalls=0;const cachedAdmin=await call('catalog?page=1');assert.equal(preparedCalls,2);assert(cachedAdmin.body.films.every(f=>f.unlocked&&f.adminAccess));
 globalThis.__testUser={userId:'cache-viewer',email:'cache-viewer@test.local'};const privateCatalog=await call('catalog');assert(privateCatalog.body.films.every(f=>!f.unlocked&&!f.adminAccess),'Admin rights never enter shared cached data');
-sqlite.prepare('INSERT INTO complimentary_access VALUES(?,?,?)').run(preview.id,'cache-viewer',1);assert((await call('catalog')).body.films.find(f=>f.id===preview.id).unlocked,'Gift rights are fresh without changing the base revision');
+sqlite.prepare('INSERT INTO complimentary_access VALUES(?,?,?)').run(preview.id,'cache-viewer',1);assert((await call('catalog?ids='+preview.id)).body.films.find(f=>f.id===preview.id).unlocked,'Gift rights are fresh without changing the base revision');
 globalThis.__testUser=owner;await call('admin/publish',{id:preview.id,publish:false});globalThis.__testUser=null;assert(!(await call('catalog')).body.films.some(f=>f.id===preview.id),'Unpublish invalidates the cached base immediately');
 globalThis.__testUser=owner;await call('admin/publish',{id:preview.id,publish:true});
 preparedCalls=0;assert.equal((await call('admin?section=users')).status,200);assert.equal(preparedCalls,0,'User section must not preload film and payment history');
 const watchBefore=sqlite.prepare('SELECT total_changes() AS n').get().n;globalThis.__testUser=bob;await call('watch-history',{episodeId:'preview1',position:12,completed:false});const once=sqlite.prepare('SELECT total_changes() AS n').get().n;await call('watch-history',{episodeId:'preview1',position:12,completed:false});assert.equal(sqlite.prepare('SELECT total_changes() AS n').get().n,once,'Identical progress writes must not update either table');
 metadata.forgetMediaMetadata(globalThis.__testEnv.BUCKET,rangeKey);r2Heads=0;for(let i=0;i<8;i++)assert.equal((await api.GET(new Request(origin+'/api/video/preview1',{headers:{Range:'bytes=0-1'}}))).status,206);assert.equal(r2Heads,1,'Eight seeks need one metadata HEAD in a warm worker, not eight');
-globalThis.__testUser=owner;assert((await call('poster/'+preview.id+'?v=1')).status===200);const cachedPoster=await api.GET(new Request(origin+'/api/poster/'+preview.id+'?v=1'));assert(cachedPoster.headers.get('Cache-Control').includes('private'));assert(cachedPoster.headers.get('Cache-Control').includes('immutable'));
+globalThis.__testUser=owner;assert((await call('poster/'+preview.id+'?v=1')).status===200);const artworkVersion=sqlite.prepare('SELECT artwork_version FROM series WHERE id=?').get(preview.id).artwork_version;const cachedPoster=await api.GET(new Request(origin+'/api/poster/'+preview.id+'?v='+artworkVersion));assert(cachedPoster.headers.get('Cache-Control').includes('private'));assert(cachedPoster.headers.get('Cache-Control').includes('immutable'));
 for(let i=0;i<120;i++){const key='cleanup-cost-fixture-'+i;sqlite.prepare('INSERT INTO media_cleanup VALUES(?)').run(key);objects.set(key,Buffer.from('fixture'))}r2Deletes=0;preparedCalls=0;await api.cleanupMedia();assert.equal(r2Deletes,1);assert.equal(preparedCalls,2);assert.equal(sqlite.prepare('SELECT count(*) AS n FROM media_cleanup').get().n,0);
 console.log('PASS: warm catalog 1/2 SQL reads with live rights, immediate unpublish invalidation, lazy admin reads, zero duplicate progress writes, 1 HEAD for 8 seeks and 1 bulk R2 delete for 120 queued objects.');
 
@@ -297,15 +299,15 @@ globalThis.__testUser=owner;await call('admin/publish',{id:preview.id,publish:fa
 globalThis.__testUser=owner;
 const sourceId=preview.id, uploadedKey='posters/'+sourceId, frameKey='previews/'+sourceId+'.jpg';
 objects.set(uploadedKey,Buffer.from('uploaded-poster-fixture'));objects.set(frameKey,Buffer.from('first-frame-fixture'));
-assert.equal((await call('admin/films?summary=1')).body.films.find(f=>f.id===sourceId).posterFromEpisodeOne,true);
-assert.equal((await call('catalog')).body.films.find(f=>f.id===sourceId).posterFromEpisodeOne,true);
+assert.equal((await call('admin/films?summary=1&id='+sourceId)).body.films.find(f=>f.id===sourceId).posterFromEpisodeOne,true);
+assert.equal((await call('catalog?ids='+sourceId)).body.films.find(f=>f.id===sourceId).posterFromEpisodeOne,true);
 assert.equal((await call('poster/'+sourceId)).body,'first-frame-fixture','Default frame wins even with an uploaded poster');
 const sourceTimestamp=sqlite.prepare('SELECT updated_at FROM series WHERE id=?').get(sourceId).updated_at;
 assert.equal((await call('admin/poster-source',{seriesId:sourceId,fromEpisodeOne:false})).status,200);
 assert(sqlite.prepare('SELECT updated_at FROM series WHERE id=?').get(sourceId).updated_at>sourceTimestamp,'Image version advances on source changes');
 assert.equal((await call('poster/'+sourceId)).body,'uploaded-poster-fixture');
-assert.equal((await call('catalog')).body.films.find(f=>f.id===sourceId).posterFromEpisodeOne,false,'Warm catalog invalidates on source changes');
-assert.equal((await call('admin/films?summary=1')).body.films.find(f=>f.id===sourceId).posterFromEpisodeOne,false,'Selection persists on reload');
+assert.equal((await call('catalog?ids='+sourceId)).body.films.find(f=>f.id===sourceId).posterFromEpisodeOne,false,'Warm catalog invalidates on source changes');
+assert.equal((await call('admin/films?summary=1&id='+sourceId)).body.films.find(f=>f.id===sourceId).posterFromEpisodeOne,false,'Selection persists on reload');
 assert.equal((await call('admin/poster-source',{seriesId:sourceId,fromEpisodeOne:'false'})).status,400);
 assert.equal((await call('admin/poster-source',{seriesId:'missing',fromEpisodeOne:true})).status,404);
 assert.equal((await call('admin/poster-source',{seriesId:sourceId,fromEpisodeOne:true},{Origin:'https://evil.local'})).status,403);
@@ -314,8 +316,21 @@ globalThis.__testUser=null;assert.equal((await call('admin/poster-source',{serie
 globalThis.__testUser=owner;assert.equal((await call('admin/poster-source',{seriesId:sourceId,fromEpisodeOne:true})).status,200);
 assert.equal((await call('poster/'+sourceId)).body,'first-frame-fixture');assert(objects.has(uploadedKey),'Switching to a frame keeps the uploaded image');
 objects.delete(frameKey);assert.equal((await call('poster/'+sourceId)).body,'uploaded-poster-fixture','Missing frame falls back without a broken image');
-assert.equal((await call('admin/films?summary=1')).body.films.find(f=>f.id==='perf0').posterFromEpisodeOne,true,'Other films keep their default selection');
+assert.equal((await call('admin/films?summary=1&id=perf0')).body.films.find(f=>f.id==='perf0').posterFromEpisodeOne,true,'Other films keep their default selection');
 const jpegFrame=Buffer.from([255,216,255,224,0,16,74,70,73,70,0,1]);
-globalThis.__testUser=owner;const thumbnailUpload=await api.POST(new Request(origin+'/api/admin/thumbnail?seriesId='+sourceId,{method:'POST',headers:{Origin:origin,'Content-Type':'image/jpeg'},body:jpegFrame}));assert.equal(thumbnailUpload.status,200);assert.equal((await call('admin/films?summary=1')).body.films.find(f=>f.id===sourceId).preview,true,'Successful frame capture is persisted for the admin UI');assert.deepEqual(objects.get(frameKey),jpegFrame);
+globalThis.__testUser=owner;const thumbnailUpload=await api.POST(new Request(origin+'/api/admin/thumbnail?seriesId='+sourceId,{method:'POST',headers:{Origin:origin,'Content-Type':'image/jpeg'},body:jpegFrame}));assert.equal(thumbnailUpload.status,200);assert.equal((await call('admin/films?summary=1&id='+sourceId)).body.films.find(f=>f.id===sourceId).preview,true,'Successful frame capture is persisted for the admin UI');assert.deepEqual(objects.get(frameKey),jpegFrame);
 await call('admin/publish',{id:sourceId,publish:false});globalThis.__testUser=null;assert.equal((await call('poster/'+sourceId)).status,404,'Source preference does not expose drafts');
 console.log('PASS: per-film poster source, real frame state, default frame priority, persisted toggles, cache invalidation, upload preservation, missing-frame fallback, admin authorization, CSRF and draft protection.');
+
+globalThis.__testUser=owner;
+const firstPage=(await call('catalog?page=1&size=5&category='+encodeURIComponent('TẤT CẢ PHIM'))).body;
+const secondPage=(await call('catalog?page=2&size=5&category='+encodeURIComponent('TẤT CẢ PHIM'))).body;
+assert.equal(firstPage.films.length,5);assert.equal(secondPage.films.length,5);assert(!firstPage.films.some(f=>secondPage.films.some(g=>g.id===f.id)));assert(firstPage.films.every(f=>f.episodes===undefined));
+assert.equal((await call('admin/film-list?size=5')).body.films.length,5);
+assert.equal((await call('admin/user-list?size=1')).body.users.length,1);
+assert.equal((await call('admin/user-list?query=does-not-exist')).body.total,0);
+assert.equal((await call('admin/films?summary=1&id=perf0')).body.films.length,1);
+assert.equal((await call('admin?section=films&id=perf0')).body.episodes.length,0);
+globalThis.__testUser=null;assert.equal((await call('admin/film-list')).status,403);assert.equal((await call('admin/user-list')).status,403);
+assert.equal((await call('film?id='+sourceId)).status,404);
+console.log('PASS: disjoint bounded catalog pages, lazy episode contract, admin film/user pagination, scoped admin detail and draft protection.');

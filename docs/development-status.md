@@ -2,6 +2,12 @@
 
 Reviewed against the working tree on 2026-11-02.
 
+## 2026-11-03 cost release prepared
+
+See [cost implementation and validation](cost-optimization-2026-11-03.md). New code adds compact paginated catalog responses, lazy episode/marker loading, shared published-artwork cache with independent versions, episode counters, scoped/paginated admin requests, ranking cache, combined playback SQL, CryptoKey reuse, repeat-view suppression, and read-only media audit / local encoding tools. Migration `0021_cost_artwork.sql` is required before Worker deployment. Wrangler is currently unauthenticated; this release is not yet deployed. The production baseline below remains the last documented version.
+
+The earlier pending import/view-limit edits and unconnected ad draft remain separate local work. Follow the cost report for remaining limitations, legacy-client compatibility, and runtime-test caveat.
+
 ## Production baseline
 
 - Domain: `https://hotai.bro.io.vn/`

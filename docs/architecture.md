@@ -24,6 +24,8 @@ Production domain: `https://hotai.bro.io.vn/`. Worker preview URL: `https://hot-
 
 ## Client
 
+Prepared 2026-11-03 cost release changes: paged compact catalog, on-demand `/api/film` episodes/markers, derived episode counts, versioned published-artwork edge byte caching with live publication checks, and bounded per-period ranking caches. Sessions, leases, balances and entitlements remain live checks. See `cost-optimization-2026-11-03.md` for deployment state and legacy-client compatibility.
+
 - `src/main.tsx` selects the home, admin, login, and information-page entry experience.
 - `app/page.tsx` owns catalog tabs, search/filter/pagination, film dialogs, resume choice, playback, checkout, history, follows, and account navigation.
 - `app/admin/page.tsx` owns admin sections and film management. Large features are split into `components/admin-*`, upload, poster, role, history, wallet, and episode components.

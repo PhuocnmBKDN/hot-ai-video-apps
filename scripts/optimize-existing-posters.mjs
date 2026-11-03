@@ -10,9 +10,7 @@ const outputRoot=path.resolve('..','work','poster-optimization','optimized');
 const wrangler=path.resolve('node_modules','wrangler','bin','wrangler.js');
 await mkdir(backupRoot,{recursive:true});await mkdir(outputRoot,{recursive:true});
 
-const response=await fetch(origin+'/api/catalog');
-if(!response.ok)throw Error('Không đọc được catalog: '+response.status);
-const {films=[]}=await response.json();
+const films=[];let page=1,pages=1;do{const response=await fetch(origin+'/api/catalog?size=100&page='+page);if(!response.ok)throw Error('Không đọc được catalog: '+response.status);const data=await response.json();films.push(...data.films);pages=data.pages;page++}while(page<=pages);
 let before=0,after=0,changed=0;
 for(const film of films){
  let source,key,contentType,extension;
@@ -36,6 +34,7 @@ for(const film of films){
  if(optimized.length>=input.length*.96){console.log('KEEP',film.id,Math.round(input.length/1024)+' KB');continue}
  const output=path.join(outputRoot,safe+'.'+extension);await writeFile(output,optimized);
  execFileSync(process.execPath,[wrangler,'r2','object','put',bucket+'/'+key,'--remote','--file',output,'--content-type',contentType],{stdio:'pipe',env:{...process.env,CLOUDFLARE_SEND_METRICS:'false'}});
+ execFileSync(process.execPath,[wrangler,'d1','execute','DB','--remote','--command',"UPDATE series SET artwork_version=artwork_version+1 WHERE id='"+film.id.replaceAll("'","''")+"'"],{stdio:'pipe',env:{...process.env,CLOUDFLARE_SEND_METRICS:'false'}});
  changed++;console.log('OK',film.id,Math.round(input.length/1024)+' → '+Math.round(optimized.length/1024)+' KB');
 }
 console.log(JSON.stringify({films:films.length,changed,beforeBytes:before,optimizedBytes:after,backupRoot},null,2));
