@@ -23,6 +23,9 @@ Implementation is prepared locally. Production deployment requires an authentica
 
 ## Compatibility and trade-offs
 
+- Pre-deployment public baseline measured on 2026-11-03: `/api/catalog?page=1&size=12` still returned 353,737 JSON bytes, 72 films and 4,554 episode entries. This is a payload measurement, not a billing measurement.
+- New clients request `/api/watch-history?summary=1`; old clients retain complete watched-marker responses until they update.
+
 - Old clients calling `/api/catalog` without pagination/filter parameters still receive episode arrays temporarily; new clients always send page/size. Remove this fallback only after old PWAs have updated. Old admin requests without a film ID also retain their previous behavior.
 - Catalog summaries are still rebuilt as a shared in-memory snapshot on revision changes / 30-second expiry. This intentionally retains Vietnamese accent-insensitive search and natural sorting. It is not SQL LIMIT/OFFSET for catalog scans; user-list pagination is SQL-based. At a much larger film count, measure snapshot size and consider sharded summaries/search indexes.
 - Cache API is per data center, best effort, and can evict objects. It reduces R2 reads but still executes the authorization Worker and publication query. Private R2 is unchanged.

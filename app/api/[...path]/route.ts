@@ -71,7 +71,7 @@ async function route(req:Request){
  }
  if(p[0]==='me')return json({user:user?{email:user.email,role:user.role||'viewer'}:null,admin:admin(user)});
  if(p[0]==='watch-history'&&req.method==='GET'){
-  if(!user)fail('Cần đăng nhập',401);return json({episodes:[],history:(await db.prepare('SELECT w.series_id AS seriesId,w.episode_id AS episodeId,w.episode_number AS number,w.position,w.completed,w.updated_at AS at,s.title FROM watch_history w JOIN series s ON s.id=w.series_id WHERE w.user_id=? AND s.deleted_at IS NULL ORDER BY w.updated_at DESC LIMIT 100').bind(user.userId).all()).results});
+  if(!user)fail('Cần đăng nhập',401);return json({episodes:new URL(req.url).searchParams.get('summary')==='1'?[]:(await db.prepare('SELECT episode_id,series_id,completed FROM watched_episodes WHERE user_id=?').bind(user.userId).all()).results,history:(await db.prepare('SELECT w.series_id AS seriesId,w.episode_id AS episodeId,w.episode_number AS number,w.position,w.completed,w.updated_at AS at,s.title FROM watch_history w JOIN series s ON s.id=w.series_id WHERE w.user_id=? AND s.deleted_at IS NULL ORDER BY w.updated_at DESC LIMIT 100').bind(user.userId).all()).results});
  }
  if(p[0]==='watch-history'&&req.method==='POST'){
   if(!user)fail('Cần đăng nhập',401);const b:any=await readJson(req);const e=await db.prepare('SELECT e.id,e.series_id,e.number,s.paid_from,s.published FROM episodes e JOIN series s ON s.id=e.series_id WHERE e.id=? AND s.deleted_at IS NULL').bind(text(b.episodeId,64)).first();

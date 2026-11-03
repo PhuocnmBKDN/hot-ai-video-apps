@@ -20,6 +20,8 @@ Prepared cost release: `/api/catalog?page=1&size=12&query=&genre=&category=&peri
 
 Admin `/api/admin/film-list` accepts query, genre, status, sort, direction, page and size; `/api/admin/user-list` accepts query, role, sort, page and size. Existing film detail and dashboard endpoints accept `id` to restrict metadata/episodes. Read-only `/api/admin/storage?audit=1&cursor=` reports a bounded R2 inventory page, never deletion. See the dated cost report for compatibility and cache policies.
 
+New startup history calls use `/api/watch-history?summary=1`; calls without this flag retain watched markers for old PWA clients.
+
 | Method | Path | Purpose |
 |---|---|---|
 | GET | `/api/catalog?drafts=1` | Public catalog plus caller entitlements; drafts only for admin with explicit flag. |
